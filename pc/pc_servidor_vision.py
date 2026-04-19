@@ -15,8 +15,6 @@ import numpy as np
 # Robots
 ROBOT_IDS = [1, 2, 3]
 
-# Workspace: IDs en esquinas (recomendado y robusto por ID)
-# Ajusta según cómo pegues tus ArUcos en la cancha:
 # ID 4 = (0,0), ID 5 = (W,0), ID 6 = (W,H), ID 7 = (0,H)
 WORKSPACE_ID_TO_WORLD = {
     4: (0.0, 0.0),
