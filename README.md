@@ -40,12 +40,6 @@ Sistema distribuido para el control, monitoreo y coordinación de múltiples rob
 - Evitación de colisiones mediante campos potenciales
 - Comunicación distribuida entre PC, Raspberry Pi y robots ESP32
 
-### Recursos sugeridos para mostrar
-- `docs/media/capturas/frame_aruco.png`
-- `docs/media/capturas/mapa_2d.png`
-- `docs/media/fotos/robot_fisico.jpg`
-- `docs/media/videos/demo_cruce.mp4`
-
 
 ![Frame con detección ArUco](docs/media/fotos/captura_interfaz_1.jpg)
 ![Funcionamiento del enjambre con campos potenciales](docs/media/gifs/demo_funcionamiento.gif)
