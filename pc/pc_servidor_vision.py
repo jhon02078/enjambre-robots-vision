@@ -92,7 +92,7 @@ def clamp(v, lo, hi):
 class MultiRobotApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PROYECTO ROBOTICA V11")
+        self.root.title("PROYECTO ROBOTICA")
         self.root.geometry("1400x780")
 
         self.running = True
