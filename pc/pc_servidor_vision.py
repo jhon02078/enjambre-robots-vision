@@ -45,11 +45,9 @@ try:
     ARUCO_PARAMS.minSideLengthCanonicalImg = 16  # Procesar a menor escala interna
     ARUCO_PARAMS.minMarkerDistanceRate = 0.005  # Permitir marcadores juntos
 except AttributeError:
-    pass  # Tu versión de OpenCV es vieja, ignorar
+    pass  
 
-# MEJORA: Activar refinamiento de esquinas para reducir el jitter (temblor)
 ARUCO_PARAMS.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
-# Refinamiento más fuerte (reduce jitter)
 ARUCO_PARAMS.cornerRefinementWinSize = 5
 ARUCO_PARAMS.cornerRefinementMaxIterations = 50
 ARUCO_PARAMS.cornerRefinementMinAccuracy = 0.01
@@ -65,8 +63,7 @@ ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
 # ============================
 # CALIBRACIÓN DE CÁMARA (Manual)
 # ============================
-# Reemplaza estos valores con los que obtengas de tu script de calibración (chessboard).
-# Si están en None, el código usará la aproximación automática antigua.
+
 CAM_FX = None  # Ejemplo: 650.45
 CAM_FY = None  # Ejemplo: 650.45
 CAM_CX = None  # Ejemplo: 320.0
@@ -99,7 +96,7 @@ class MultiRobotApp:
         # ---------- Video ----------
         self.cap = None
         self.latest_frame = None
-        self.url_camera = tk.StringVar(value="http://172.25.203.138:5000/video")  # IP Webcam
+        self.url_camera = tk.StringVar(value="http://172.25.203.138:5000/video") 
 
         # ---------- Workspace ----------
         self.real_width = tk.DoubleVar(value=1.25)
@@ -113,7 +110,7 @@ class MultiRobotApp:
         self.ws_last_seen = {}  # último tiempo visto por ID
 
         # --- Parallax / altura ---
-        self.robot_marker_height_m = tk.DoubleVar(value=0.06)  # 5 cm
+        self.robot_marker_height_m = tk.DoubleVar(value=0.06)  # 6 cm
         self.cam_pos_world = None  # (Cx, Cy, Cz) en metros, en coords del mundo
 
         # ---------- Control ----------
@@ -132,14 +129,12 @@ class MultiRobotApp:
 
         # Memoria para el control Derivativo (D)
         self.prev_angle_err = {rid: 0.0 for rid in ROBOT_IDS}
-        # --- CAMBIO 2: Ganancia Derivativa (EL AMORTIGUADOR) ---
-        # Esto frena el giro cuando se acerca al objetivo para no pasarse.
         self.k_ang_d_pct = tk.DoubleVar(value=3.5)
 
         # Evitación
         self.avoid_on = tk.BooleanVar(value=True)
-        self.avoid_radius = tk.DoubleVar(value=0.20)  # //11cm antes
-        self.k_rep = tk.DoubleVar(value=0.70)  # magnitud repulsión (ajustable)
+        self.avoid_radius = tk.DoubleVar(value=0.20)  
+        self.k_rep = tk.DoubleVar(value=0.70)  
 
         # ---------- Estado robots (visión) ----------
         # robot_state[rid] = {"x":, "y":, "yaw":, "t":}
@@ -164,7 +159,7 @@ class MultiRobotApp:
         # discovered[rid] = {"ip": str, "port": int, "t": float}
         self.discovered = {rid: None for rid in ROBOT_IDS}
 
-        # === NUEVO: VISUALIZACIÓN DE FUERZAS ===
+        # === VISUALIZACIÓN DE FUERZAS ===
         # Guardaremos aquí los vectores calculados para dibujarlos luego
         self.vis_vectors = {rid: {'att': None, 'rep': None, 'res': None} for rid in ROBOT_IDS}
 
@@ -202,7 +197,7 @@ class MultiRobotApp:
         tk.Entry(top, textvariable=self.real_height, width=6).pack(side=tk.LEFT)
 
         # ========================================================
-        # ### NUEVO: CAMPO PARA ALTURA DEL ROBOT (PARALAJE) ###
+        # ### CAMPO PARA ALTURA DEL ROBOT (PARALAJE) ###
         # ========================================================
         tk.Label(top, text="Alt.Rob(m):", bg="#ddd", fg="blue").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.robot_marker_height_m, width=6).pack(side=tk.LEFT)
@@ -253,7 +248,6 @@ class MultiRobotApp:
         if self.cap is not None:
             self.cap.release()
         self.cap = cv2.VideoCapture(url)
-        # buffersize no siempre funciona con streams, pero ayuda
         try:
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
@@ -264,7 +258,6 @@ class MultiRobotApp:
         with self.lock:
             for rid in ROBOT_IDS:
                 self.targets[rid] = None
-        # manda stop a todos los robots descubiertos
         for rid in ROBOT_IDS:
             self.send_robot_cmd(rid, 0, 0)
 
@@ -369,7 +362,7 @@ class MultiRobotApp:
     def _control_loop(self):
         dt = 1.0 / CMD_RATE_HZ
 
-        # === NUEVO: Máquina de estados por robot (reposo real / orientar / correr / evasión)
+        # === Máquina de estados por robot (reposo real / orientar / correr / evasión)
         # IDLE  : reposo real (sin target o recién llegó)
         # ORIENT: solo gira hasta quedar dentro de ±10°
         # RUN   : navegación normal
@@ -539,8 +532,8 @@ class MultiRobotApp:
                 # Aumenta o disminuye la rapidez con la que gira mientras está "alineándose" en reposo real.
                 mode_now = self.nav_mode.get(rid, "IDLE")
 
-                ORIENT_TURN_GAIN = 1.4  # <-- súbelo para girar más rápido (ej: 2.5), bájalo para más lento (ej: 1.2)
-                ORIENT_MIN_TURN = 10.0  # <-- mínimo de giro (%) para que no se quede "temblando" (0 para desactivar)
+                ORIENT_TURN_GAIN = 1.4  # subir para girar más rápido (ej: 2.5)
+                ORIENT_MIN_TURN = 10.0  # mínimo de giro (%) para que no se quede "temblando" 
 
                 if mode_now == "ORIENT":
                     # Escalar la orden angular
@@ -559,13 +552,11 @@ class MultiRobotApp:
                 # 2. Márgenes (en rad)
                 MARGIN_ORIENT = math.radians(15.0)  # ±10°
                 MARGIN_RUN = math.radians(286.0)  # "286°"
-                # OJO: con wrap_pi el error angular máximo es π (180°),
-                # así que 286° equivale a "siempre alineado" en la práctica.
                 MARGIN_RUN = min(MARGIN_RUN, math.pi)
 
                 # 3. Lógica por estados
                 if mode == "ORIENT":
-                    # En ORIENT: no avanzamos, SOLO giramos hasta quedar dentro de ±10°
+                    # En ORIENT: no avanza, solo gira hasta quedar dentro de ±10°
                     align_factor = 0.0
                     dist_factor = 0.0  # fuerza lineal=0
 
@@ -579,18 +570,17 @@ class MultiRobotApp:
                         align_factor = 1.0 if abs(angle_err) <= MARGIN_RUN else 0.0
                     else:
                         # Si por algún motivo estamos RUN pero aparece repulsión,
-                        # el bloque de arriba ya lo habría puesto en AVOID.
+                
                         align_factor = max(0.0, math.cos(angle_err))
 
                 else:  # AVOID
-                    # Evasión: mantenemos coseno (tu comportamiento actual)
+                    # Evasión: mantenemos coseno 
                     align_factor = max(0.0, math.cos(angle_err))
 
                 # Guardar modo final
                 self.nav_mode[rid] = mode
 
                 # Si align_factor es bajo (robot frenado o curveando cerrado),
-                # aumentamos el giro para que sea "dinámico".
                 if mode != "ORIENT" and align_factor < 0.5:
                     # Interpolación Lineal Inversa:
                     # - Si align_factor es 0.0 (Parado) -> Boost = 3.5 (Giro muy rápido)
@@ -696,7 +686,6 @@ class MultiRobotApp:
         obj_pts = np.array(obj_pts, dtype=np.float32)
 
         # 2) Matriz intrínseca (K) y Distorsión (dist)
-        # Verifica si existen datos de calibración en CONFIG
         if None not in (CAM_FX, CAM_FY, CAM_CX, CAM_CY, CAM_DIST):
             # Usar valores reales calibrados
             K = np.array([[CAM_FX, 0, CAM_CX],
@@ -712,7 +701,6 @@ class MultiRobotApp:
             dist = np.zeros((5, 1), dtype=np.float32)
 
         # Usamos IPPE (Infinitesimal Plane-Based Pose Estimation)
-        # Es el MEJOR algoritmo para 4 puntos planos (como marcadores en el suelo)
         ok, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, K, dist, flags=cv2.SOLVEPNP_IPPE)
         if not ok:
             return None
@@ -739,7 +727,7 @@ class MultiRobotApp:
 
         s = (cz - h_obj) / cz  # < 1  (trae el punto hacia la cámara)
 
-        # === FIX 2: LIMITADOR DE EXPLOSIÓN ===
+        # === LIMITADOR DE EXPLOSIÓN ===
         # Si la corrección intenta mover el punto más de un 200% relativo al centro, lo ignoramos
         if abs(s) > 2.0:
             return x_floor, y_floor
@@ -748,187 +736,6 @@ class MultiRobotApp:
         y = cy + (y_floor - cy) * s
         return x, y
 
-    '''
-    def process_frame(self, frame):
-
-        # === TRUCO DE AFILADO (SHARPEN KERNEL) ===
-        # Esto resalta los bordes negros sobre el suelo claro antes de detectar
-        kernel = np.array([[0, -1, 0],
-                           [-1, 5, -1],
-                           [0, -1, 0]])
-
-        # Aplicamos el filtro a la imagen que va al detector (no necesariamente a la display)
-        frame_sharp = cv2.filter2D(frame, -1, kernel)
-
-        # Pasamos la imagen afilada al detector
-        corners, ids, rejected = ARUCO_DETECTOR.detectMarkers(frame_sharp)
-
-        display = frame.copy()
-        #corners, ids, rejected = ARUCO_DETECTOR.detectMarkers(frame)
-
-        # refrescar states si no se ve
-        now = time.time()
-
-        if ids is not None:
-            ids = ids.flatten().tolist()
-            cv2.aruco.drawDetectedMarkers(display, corners, np.array(ids))
-
-            # ### NUEVO: DIBUJAR LÍNEAS AMARILLAS ENTRE PUNTOS ROJOS (Esquina 0) ###
-            ws_corners = {}
-            for i, mid in enumerate(ids):
-                if mid in [4, 5, 6, 7]:
-                    # corners[i][0][0] es la primera esquina (el punto rojo/verde inicial)
-                    c = corners[i][0][0]
-                    ws_corners[mid] = c.astype(int)
-
-            # Solo dibujamos si están las 4 esquinas para cerrar el ciclo
-            # Orden: 4 -> 5 -> 6 -> 7 -> 4
-            if all(k in ws_corners for k in [4, 5, 6, 7]):
-                pts = np.array([ws_corners[4], ws_corners[5], ws_corners[6], ws_corners[7]], np.int32)
-                pts = pts.reshape((-1, 1, 2))
-                # (0, 255, 255) es Amarillo en BGR, grosor 3
-                cv2.polylines(display, [pts], True, (0, 255, 255), 3)
-            # ######################################################################
-
-            W = float(self.real_width.get())
-            H = float(self.real_height.get())
-
-            # --- 1) Actualizar filtros de centros de esquinas (IDs 4..7) ---
-            # Aumentamos el ALPHA para que sea más "pesado" (más inercia)
-            WS_ALPHA = 0.97
-
-            # Umbral de histéresis (en píxeles).
-            # Si el marcador se mueve menos que esto, no actualizamos la posición.
-            LOCK_THRESHOLD_PX = 5.0
-
-            for i, mid in enumerate(ids):
-                if mid in [4, 5, 6, 7]:
-                    c = corners[i][0]  # 4x2
-                    center = self._get_marker_center(c)  # (2,)
-                    raw_p = np.array(center, dtype=np.float32)
-
-                    prev = self.ws_center_filt.get(mid)
-                    if prev is None:
-                        self.ws_center_filt[mid] = raw_p
-                    else:
-                        # Calculamos cuánto se movió respecto al filtro actual
-                        dist_moved = np.linalg.norm(raw_p - prev)
-                        if dist_moved < LOCK_THRESHOLD_PX:
-                            # === ZONA MUERTA (ANCLAJE) ===
-                            # Si el movimiento es ruido pequeño, IGNORAMOS la nueva lectura.
-                            # Mantenemos el valor anterior exacto. Esto elimina el titileo.
-                            pass
-                        else:
-                            # Si el movimiento es grande (alguien movió la cámara), actualizamos suavemente
-                            self.ws_center_filt[mid] = (WS_ALPHA * prev) + ((1.0 - WS_ALPHA) * raw_p)
-
-                    self.ws_last_seen[mid] = now
-
-            # --- 2) Construir H SOLO si tenemos las 4 esquinas "recientes" ---
-            def _recent(mid):
-                return (mid in self.ws_center_filt) and (
-                            (now - self.ws_last_seen.get(mid, 0)) <= self.homography_hold_s)
-
-            Hm_new = None
-            if all(_recent(k) for k in [4, 5, 6, 7]):
-                img_pts = np.array([self.ws_center_filt[4],
-                                    self.ws_center_filt[5],
-                                    self.ws_center_filt[6],
-                                    self.ws_center_filt[7]], dtype=np.float32)
-
-                world_pts = np.array([[0.0, 0.0],
-                                      [W, 0.0],
-                                      [W, H],
-                                      [0.0, H]], dtype=np.float32)
-
-                # con 4 puntos, getPerspectiveTransform es estable y determinista
-                Hm_new = cv2.getPerspectiveTransform(img_pts, world_pts)
-
-                # --- Gating anti-saltos: comparar contra H actual ---
-                with self.lock:
-                    Hold = None if self.homography is None else self.homography.copy()
-
-                if Hold is not None:
-                    # Normalizamos por H[2,2] para comparar
-                    A = Hm_new / (Hm_new[2, 2] + 1e-9)
-                    B = Hold / (Hold[2, 2] + 1e-9)
-                    jump = float(np.linalg.norm(A - B))
-
-                    # Umbral: si se pasa, descartamos este frame (típico 0.2-1.0)
-                    if jump > 0.8:
-                        Hm_new = None
-
-            # --- 3) Filtrar/actualizar self.homography con "hold" ---
-            with self.lock:
-                if Hm_new is not None:
-                    if self.homography is None:
-                        self.homography = Hm_new
-                    else:
-                        H_ALPHA = 0.97  # más alto = más estable (0.90-0.97)
-                        self.homography = (H_ALPHA * self.homography) + ((1.0 - H_ALPHA) * Hm_new)
-                    self.homography_t = now
-                else:
-                    # Si no hay H nuevo, NO borres. Se mantiene el último (hold).
-                    pass
-
-            # Robots
-                    # Robots: usar SIEMPRE la homografía filtrada (y aguantar aunque falten esquinas)
-            with self.lock:
-                Huse = self.homography
-            if Huse is not None:
-
-                cam_pos = self._estimate_camera_pose_from_workspace(ids, corners, W, H, frame.shape)
-                with self.lock:
-                    self.cam_pos_world = cam_pos
-                for i, mid in enumerate(ids):
-                    if mid in ROBOT_IDS:
-                        c = corners[i][0]  # 4x2 in image
-                        center = self._get_marker_center(c)
-                        cx, cy = float(center[0]), float(center[1])
-
-                        # Transformar corners a mundo para yaw más consistente
-                        # Puntos (en suelo z=0) via homografía
-                        p0x, p0y = self._transform_point(Huse, float(c[0][0]), float(c[0][1]))
-                        p1x, p1y = self._transform_point(Huse, float(c[1][0]), float(c[1][1]))
-                        rx, ry = self._transform_point(Huse, cx, cy)
-
-                        # --- Corrección de paralaje (z = h_robot) ---
-                        with self.lock:
-                            cam_pos = self.cam_pos_world
-                        h_robot = float(self.robot_marker_height_m.get())
-
-                        p0x, p0y = self._parallax_correct_xy(p0x, p0y, cam_pos, h_robot)
-                        p1x, p1y = self._parallax_correct_xy(p1x, p1y, cam_pos, h_robot)
-                        rx, ry = self._parallax_correct_xy(rx, ry, cam_pos, h_robot)
-
-                        # Yaw con puntos ya corregidos
-                        yaw = math.atan2(p1y - p0y, p1x - p0x)
-
-                        # Guardar estado
-                        with self.lock:
-                            self.robot_state[mid] = {"x": rx, "y": ry, "yaw": yaw, "t": now}
-
-                        # Overlay
-                        cv2.putText(display, f"ID:{mid} ({rx:.2f},{ry:.2f})",
-                                    (int(cx), int(cy) - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
-
-        # Envejecer robots no vistos
-        with self.lock:
-            for rid in ROBOT_IDS:
-                st = self.robot_state[rid]
-                if st is not None and (now - st["t"]) > 0.7:
-                    pass
-
-            # limpiar descubrimiento viejo
-            for rid in ROBOT_IDS:
-                info = self.discovered[rid]
-                if info is not None and (time.time() - info["t"]) > ROBOT_STALE_S:
-                    self.discovered[rid] = None
-
-        return display
-
-    '''
 
     def process_frame(self, frame):
 
@@ -964,9 +771,8 @@ class MultiRobotApp:
             # ==================================================================
 
             # Umbral alto: El marcador debe moverse más de X px para ser actualizado.
-            # Esto "congela" la cancha a menos que la muevas intencionalmente.
             HEAVY_LOCK_THRESHOLD = 15.0
-            WS_ALPHA = 0.8  # Velocidad de actualización cuando sí decidimos moverlo
+            WS_ALPHA = 0.8  # Velocidad de actualización 
 
             for mid in [4, 5, 6, 7]:
                 if mid in current_raw_corners:
@@ -996,8 +802,6 @@ class MultiRobotApp:
             # ==================================================================
             # 3. DIBUJAR LÍNEAS AMARILLAS USANDO LOS DATOS FILTRADOS (ESTABLES)
             # ==================================================================
-            # Antes dibujabas usando 'corners' (raw). Ahora usamos 'ws_center_filt'.
-            # Esto hará que las líneas amarillas se queden quietas aunque la cámara vibre.
 
             pts_draw = []
             can_draw_poly = True
@@ -1154,8 +958,6 @@ class MultiRobotApp:
 
         mx = ox + x * scale
 
-        # ### MODIFICADO: Invertimos Y para que 0 esté abajo y H esté arriba
-        # (oy + H * scale) es la parte inferior visual del rectángulo
         my = (oy + H * scale) - (y * scale)
 
         return mx, my, scale, ox, oy
@@ -1173,8 +975,6 @@ class MultiRobotApp:
 
         x = (mx - ox) / scale
 
-        # ### MODIFICADO: Inversa de la ecuación anterior
-        # y = (PixelAbajo - PixelActual) / escala
         y = ((oy + H * scale) - my) / scale
 
         x = clamp(x, 0.0, W)
@@ -1198,8 +998,6 @@ class MultiRobotApp:
         # Campo
         self.canvas.create_rectangle(ox, oy, ox + W * scale, oy + H * scale, outline="black", width=3, fill="#f3f3f3")
 
-        # ### NUEVO: Mostrar IDs en las esquinas ###
-        # Definimos dónde está cada ID lógicamente
         corner_labels = [
             (4, 0.0, 0.0),  # Abajo Izquierda
             (5, W, 0.0),  # Abajo Derecha
@@ -1217,7 +1015,6 @@ class MultiRobotApp:
             offset_y = 15 if cy < H / 2 else -15
 
             self.canvas.create_text(cmx, cmy + offset_y, text=f"ID {cid}", fill="blue", font=("Arial", 10, "bold"))
-        # ##########################################
 
         # Targets
         with self.lock:
@@ -1247,10 +1044,8 @@ class MultiRobotApp:
 
             self.canvas.create_oval(mx - 11, my - 11, mx + 11, my + 11, fill=color, outline="")
 
-            # OJO: Como invertimos el eje Y visualmente, tenemos que invertir el SENO del ángulo
-            # para que la línea apunte correctamente.
             ex = mx + 24 * math.cos(yaw)
-            ey = my - 24 * math.sin(yaw)  # RESTAMOS el seno porque Y crece hacia abajo en pixeles
+            ey = my - 24 * math.sin(yaw)  
 
             self.canvas.create_line(mx, my, ex, ey, fill="black", width=2)
             self.canvas.create_text(mx, my + 18, text=f"R{rid}", fill="black")
@@ -1262,7 +1057,7 @@ class MultiRobotApp:
             else:
                 self.canvas.create_text(mx, my - 18, text=info["ip"], fill="gray25")
 
-            # === NUEVO: DIBUJAR FUERZAS Y PAREDES ===
+            # === DIBUJAR FUERZAS Y PAREDES ===
             # 1. Dibujar Zona de Paredes (Rectángulo Rojo Tenue)
             wall_d0 = 0.025  # El mismo valor que en control
             wx0, wy0, _, _, _ = self.world_to_map(wall_d0, wall_d0, cw, ch, W, H)

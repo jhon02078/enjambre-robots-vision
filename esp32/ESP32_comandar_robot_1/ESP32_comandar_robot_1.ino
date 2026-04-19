@@ -2,10 +2,9 @@
 #include <WiFiUdp.h>
 
 // =======================
-// WIFI (rellena)
+// WIFI 
 // =======================
-//const char* WIFI_SSID = "CELERITY_FLIA_MENESES";
-//const char* WIFI_PASS = "GANONG65tension*";
+
 const char* WIFI_SSID = "LAB ROBOTICA";
 const char* WIFI_PASS = "robotica2021";
 
@@ -23,40 +22,33 @@ static const uint16_t DISCOVERY_PORT = 37030;  // discovery: "DISCOVER_ROBOTS"
 static const uint32_t COMMAND_TIMEOUT_MS = 500;
 
 // =======================
-// Pines TB6612FNG (tuyos)
+// Pines TB6612FNG 
 // =======================
 #define STBY_PIN   13
 
-// --- CAMBIO: AHORA EL A ES EL B ---
-#define IN1A_PIN   25  // Antes era del B
-#define IN2A_PIN   33  // Antes era del B
-#define PWMA_PIN   32  // Antes era del B
+#define IN1A_PIN   25  
+#define IN2A_PIN   33  
+#define PWMA_PIN   32  
 
-// --- CAMBIO: AHORA EL B ES EL A ---
-#define IN1B_PIN   26  // Antes era del A
-#define IN2B_PIN   27  // Antes era del A
-#define PWMB_PIN   14  // Antes era del A
+#define IN1B_PIN   26  
+#define IN2B_PIN   27  
+#define PWMB_PIN   14  
 
-// =======================
-// Sensor CNY70 (IMPORTANTE)
-// =======================
-// Evita ADC2 (GPIO2) con WiFi. Usa ADC1: 34/35/36/39.
-//#define SENSOR_PIN 34
 
 // LEDs
 #define LED1_PIN   16
 #define LED2_PIN    5
 
-// START externo (si no lo usas, pon USE_START_GATE=0)
-#define START_IN_PIN 15   // HIGH=RUN, LOW=STOP
+// START externo
+#define START_IN_PIN 15   
 #define USE_START_GATE 0
 
 // Inversión motores
-#define MOTOR_A_INVERT 0       //0 para el mio
-#define MOTOR_B_INVERT 1      //1 para el mio
+#define MOTOR_A_INVERT 0     
+#define MOTOR_B_INVERT 1     
 
 // =======================
-// PWM (LEDC nuevo API core 3.x)
+// PWM 
 // =======================
 const uint32_t PWM_FREQ = 20000;
 const uint8_t  PWM_RES  = 10;
@@ -124,39 +116,6 @@ void setMotorsPct(int leftPct, int rightPct){
   targetA = pct2duty(leftPct);
   targetB = pct2duty(rightPct);
 }
-
-
-//ROBOT WILSON
-/*
-void setMotorsPct(int leftPct, int rightPct){
-  float factorL = 1.0; // Factor para la llanta IZQUIERDA (Motor A)
-  float factorR = 0.36; // Factor para la llanta DERECHA (Motor B)
-  
-  // APLICAR CORRECCIÓN:
-  leftPct  = (int)(leftPct  * factorL);
-  rightPct = (int)(rightPct * factorR);
-  Serial.print("leftPct: "); Serial.println(leftPct); 
-  Serial.print("rightPct: "); Serial.println(rightPct);
-  // ==========================================
-
-  leftPct  = clampi(leftPct, -100, 100);
-  rightPct = clampi(rightPct, -100, 100);
-
-  lastL = leftPct; lastR = rightPct;
-
-  if (MOTOR_A_INVERT) leftPct  = -leftPct;
-  if (MOTOR_B_INVERT) rightPct = -rightPct;
-
-  targetA = pct2duty(leftPct);
-  targetB = pct2duty(rightPct);
-}
-*/
-
-
-
-
-
-
 
 
 void stepRamp(){
@@ -228,12 +187,11 @@ void setup(){
   pinMode(LED1_PIN, OUTPUT); pinMode(LED2_PIN, OUTPUT);
 
 #if USE_START_GATE
-  pinMode(START_IN_PIN, INPUT); // si tu módulo maneja el nivel
+  pinMode(START_IN_PIN, INPUT); 
 #endif
 
   digitalWrite(STBY_PIN, HIGH);
 
-  // ---- LEDC API nuevo (core 3.x): ledcAttach + ledcWrite(pin,duty)
   bool okA = ledcAttach(PWMA_PIN, PWM_FREQ, PWM_RES);
   bool okB = ledcAttach(PWMB_PIN, PWM_FREQ, PWM_RES);
   if (!okA || !okB){
