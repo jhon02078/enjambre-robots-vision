@@ -47,10 +47,8 @@ Sistema distribuido para el control, monitoreo y coordinación de múltiples rob
 - `docs/media/videos/demo_cruce.mp4`
 
 
-```md
-![Frame con detección ArUco](docs/media/fotos/captura_interfaz_1.png)
+![Frame con detección ArUco](docs/media/fotos/captura_interfaz_1.jpg)
 ![Funcionamiento del enjambre con campos potenciales](docs/media/gifs/demo_funcionamiento.gif)
-````
 
 ---
 
@@ -270,47 +268,6 @@ La aplicación de PC incluye una GUI para supervisión y control del sistema.
 
 ---
 
-## Estructura ampliada del repositorio
-
-```text
-enjambre-robots-vision/
-├── README.md
-├── .gitignore
-├── pc/
-│   └── vision_server/
-├── raspberry/
-│   └── camera_stream/
-├── esp32/
-│   ├── robot_1/
-│   ├── robot_2/
-│   └── robot_3/
-├── hardware/
-│   ├── cad/
-│   ├── pcb/
-│   ├── wiring/
-│   └── bom/
-├── docs/
-│   ├── media/
-│   ├── report/
-│   └── diagrams/
-└── results/
-```
-
-### Descripción por carpetas
-
-* `pc/vision_server/`: servidor central de visión, GUI y control.
-* `raspberry/camera_stream/`: streaming MJPEG desde la Raspberry Pi.
-* `esp32/`: firmware de los robots móviles.
-* `hardware/cad/`: modelos STL y piezas mecánicas.
-* `hardware/pcb/`: esquemáticos, archivos fuente e imágenes de la PCB.
-* `hardware/wiring/`: diagramas de conexión y pinout.
-* `hardware/bom/`: lista de materiales.
-* `docs/media/`: fotos, videos, capturas y demostraciones.
-* `docs/report/`: informe técnico, paper o memoria del proyecto.
-* `results/`: resultados experimentales, logs y trayectorias.
-
----
-
 ## Requisitos
 
 ### PC
@@ -400,33 +357,6 @@ Cargar el firmware en cada robot ajustando el identificador correspondiente:
 static const int ROBOT_ID = 1;   // cambiar para cada robot
 ```
 
----
-
-## Hardware del robot
-
-El repositorio incluye material relacionado con la implementación física del robot:
-
-### `hardware/cad/`
-
-* STL del chasis y piezas mecánicas impresas en 3D
-
-### `hardware/pcb/`
-
-* archivo fuente del esquemático
-* imágenes del circuito
-* fotografías de la PCB fabricada y montada
-
-### `hardware/wiring/`
-
-* diagrama de conexiones
-* pinout ESP32 ↔ TB6612FNG
-* notas de alimentación
-
-### `hardware/bom/`
-
-* lista de materiales del robot y del sistema
-
----
 
 ## Resultados
 
@@ -445,57 +375,6 @@ El sistema fue validado en diferentes escenarios experimentales, incluyendo:
 * reducción de colisiones,
 * buena separación entre adquisición, procesamiento y actuación.
 
----
-
-## Validación visual sugerida
-
-Se recomienda incluir en `docs/media/`:
-
-* captura del frame de cámara con marcadores detectados
-* captura del mapa 2D con vectores de control
-* foto del sistema físico montado
-* video corto del escenario de cruce entre robots
-* imagen de la PCB y del robot ensamblado
-
----
-
-## Limitaciones actuales
-
-* Dependencia de la visibilidad de los marcadores ArUco
-* Sensibilidad a iluminación, vibraciones y oclusiones
-* Posibles mínimos locales en campos potenciales
-* Precisión dependiente de la calibración intrínseca de la cámara
-* Robustez condicionada por la calidad de la red Wi-Fi
-
----
-
-## Trabajo futuro
-
-* Calibración completa de cámara
-* Corrección de distorsión óptica
-* Filtrado dinámico de pose
-* Mejora de robustez ante oclusiones
-* Estrategias anti-mínimos locales
-* Integración de planificación global
-* Escalado a un mayor número de robots
-
----
-
-## Informe técnico / Paper
-
-Este repositorio puede complementarse con:
-
-* informe técnico del proyecto,
-* paper académico,
-* capturas de resultados,
-* documentación de hardware,
-* diagramas de arquitectura y flujo.
-
-Ejemplo sugerido:
-
-```text
-docs/report/informe_proyecto.pdf
-```
 
 ---
 
