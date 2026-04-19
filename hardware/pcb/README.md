@@ -15,6 +15,3 @@ Actualmente se dispone del archivo fuente del esquemático y evidencia fotográf
 - ESP32 DevKitC
 - TB6612FNG
 - LM1584EN
-
-## Nota
-Si en el futuro se dispone de archivos Gerber, PDF del esquemático o layout editable, pueden añadirse aquí.
