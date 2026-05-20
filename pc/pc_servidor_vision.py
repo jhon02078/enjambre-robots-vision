@@ -1,7 +1,12 @@
-import threading
+﻿import threading
 import time
 import math
 import socket
+import json
+import heapq
+from collections import deque
+from pathlib import Path
+from urllib.parse import urlparse
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
@@ -26,12 +31,34 @@ WORKSPACE_ID_TO_WORLD = {
 # Discovery UDP
 DISCOVERY_PORT = 37030
 DISCOVERY_QUERY = b"DISCOVER_ROBOTS"
-DISCOVERY_INTERVAL_S = 0.7
-ROBOT_STALE_S = 3.0  # si un robot no responde en X s se considera "perdido"
+DISCOVERY_INTERVAL_S = 0.35
+DISCOVERY_LISTEN_S = 0.30
+ROBOT_WARN_S = 3.0
+ROBOT_STALE_S = 20.0  # se marca como stale, pero no se borra la IP conocida
+ROBOT_FORGET_S = 120.0
+COMMAND_REDUNDANCY = 2
+COMMAND_RESEND_GAP_S = 0.003
 
 # Comandos UDP a robot
-ROBOT_CMD_PORT = 44444  # todos usan este puerto (en el ESP32 también)
+ROBOT_CMD_PORT = 44444  # todos usan este puerto (en el ESP32 tambiÃ©n)
 CMD_RATE_HZ = 12
+
+# Mapa / trayectoria
+UI_CONFIG_FILE = Path(__file__).with_name("ui_config.json")
+WALLS_FILE = Path(__file__).with_name("paredes.json")
+NETWORK_CACHE_FILE = Path(__file__).with_name("robots_cache.json")
+PATH_GRID_RES_M = 0.04
+PATH_CLEARANCE_M = 0.08
+PATH_WAYPOINT_REACHED_M = 0.04
+WALL_FIELD_DRAW_RANGE_M = 0.18
+ROBOT_POSE_MARGIN_M = 0.08
+ROBOT_MAX_JUMP_M = 0.35
+ROBOT_POSE_HISTORY_N = 5
+ROBOT_RAW_DEADZONE_M = 0.008
+ROBOT_SLOW_ALPHA = 0.18
+ROBOT_FAST_ALPHA = 0.55
+ROBOT_FAST_MOVE_M = 0.08
+ROBOT_YAW_DEADZONE_RAD = math.radians(2.0)
 
 # ArUco
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -52,7 +79,7 @@ ARUCO_PARAMS.cornerRefinementWinSize = 5
 ARUCO_PARAMS.cornerRefinementMaxIterations = 50
 ARUCO_PARAMS.cornerRefinementMinAccuracy = 0.01
 
-# Umbrales más robustos (si se pierden marcadores)
+# Umbrales mÃ¡s robustos (si se pierden marcadores)
 ARUCO_PARAMS.adaptiveThreshWinSizeMin = 5
 ARUCO_PARAMS.adaptiveThreshWinSizeMax = 45
 ARUCO_PARAMS.adaptiveThreshWinSizeStep = 10
@@ -61,14 +88,14 @@ ARUCO_PARAMS.adaptiveThreshConstant = 7
 ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
 
 # ============================
-# CALIBRACIÓN DE CÁMARA (Manual)
+# CALIBRACIÃ“N DE CÃMARA (Manual)
 # ============================
 
 CAM_FX = None  # Ejemplo: 650.45
 CAM_FY = None  # Ejemplo: 650.45
 CAM_CX = None  # Ejemplo: 320.0
 CAM_CY = None  # Ejemplo: 240.0
-# Coeficientes de distorsión (k1, k2, p1, p2, k3)
+# Coeficientes de distorsiÃ³n (k1, k2, p1, p2, k3)
 CAM_DIST = None  # Ejemplo: np.array([0.1, -0.05, 0.0, 0.0, 0.0])
 
 
@@ -88,83 +115,110 @@ class MultiRobotApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PROYECTO ROBOTICA")
-        self.root.geometry("1400x780")
+        self.root.geometry("1500x860")
 
         self.running = True
         self.lock = threading.Lock()
+        self.ui_config = self.load_ui_config()
+        self._config_save_job = None
+
+        def cfg(name, default):
+            return self.ui_config.get(name, default)
 
         # ---------- Video ----------
         self.cap = None
         self.latest_frame = None
-        self.url_camera = tk.StringVar(value="http://172.25.203.138:5000/video") 
+        self.url_camera = tk.StringVar(value=cfg("url_camera", "http://172.25.203.138:5000/video")) 
 
         # ---------- Workspace ----------
-        self.real_width = tk.DoubleVar(value=1.25)
-        self.real_height = tk.DoubleVar(value=1.25)
+        self.real_width = tk.DoubleVar(value=cfg("real_width", 1.25))
+        self.real_height = tk.DoubleVar(value=cfg("real_height", 1.25))
         self.homography = None
 
-        # --- Estabilidad homografía ---
-        self.homography_t = 0.0  # cuándo se actualizó por última vez
-        self.homography_hold_s = 1.2  # segundos que “aguanta” el último H válido
+        # --- Estabilidad homografÃ­a ---
+        self.homography_t = 0.0  # cuÃ¡ndo se actualizÃ³ por Ãºltima vez
+        self.homography_hold_s = 1.2  # segundos que â€œaguantaâ€ el Ãºltimo H vÃ¡lido
         self.ws_center_filt = {}  # centros filtrados de IDs 4..7  (id -> np.array([x,y]))
-        self.ws_last_seen = {}  # último tiempo visto por ID
+        self.ws_last_seen = {}  # Ãºltimo tiempo visto por ID
 
         # --- Parallax / altura ---
-        self.robot_marker_height_m = tk.DoubleVar(value=0.06)  # 6 cm
+        self.robot_marker_height_m = tk.DoubleVar(value=cfg("robot_marker_height_m", 0.06))  # 6 cm
         self.cam_pos_world = None  # (Cx, Cy, Cz) en metros, en coords del mundo
 
         # ---------- Control ----------
         self.control_active = tk.BooleanVar(value=False)
-        self.selected_robot = tk.IntVar(value=1)
+        self.selected_robot = tk.IntVar(value=cfg("selected_robot", 1))
 
         # Ganancias (en %)
         # Klin: Velocidad lineal
-        self.k_lin_pct_per_m = tk.DoubleVar(value=70.0)  # % por metro
+        self.k_lin_pct_per_m = tk.DoubleVar(value=cfg("k_lin_pct_per_m", 70.0))  # % por metro
         # Kang: Velocidad de giro.
-        self.k_ang_pct_per_rad = tk.DoubleVar(value=10.0)  # % por rad
+        self.k_ang_pct_per_rad = tk.DoubleVar(value=cfg("k_ang_pct_per_rad", 10.0))  # % por rad
         # Vmax: Velocidad tope.
-        self.vmax_pct = tk.DoubleVar(value=40.0)
-        self.wspin_thresh_rad = tk.DoubleVar(value=0.55)  # ~31°
-        self.dist_tolerance = tk.DoubleVar(value=0.02)  # 2 cm
+        self.vmax_pct = tk.DoubleVar(value=cfg("vmax_pct", 40.0))
+        self.wspin_thresh_rad = tk.DoubleVar(value=cfg("wspin_thresh_rad", 0.55))  # ~31Â°
+        self.dist_tolerance = tk.DoubleVar(value=cfg("dist_tolerance", 0.02))  # 2 cm
 
         # Memoria para el control Derivativo (D)
         self.prev_angle_err = {rid: 0.0 for rid in ROBOT_IDS}
-        self.k_ang_d_pct = tk.DoubleVar(value=3.5)
+        self.k_ang_d_pct = tk.DoubleVar(value=cfg("k_ang_d_pct", 3.5))
 
-        # Evitación
-        self.avoid_on = tk.BooleanVar(value=True)
-        self.avoid_radius = tk.DoubleVar(value=0.20)  
-        self.k_rep = tk.DoubleVar(value=0.70)  
+        # EvitaciÃ³n
+        self.avoid_on = tk.BooleanVar(value=cfg("avoid_on", True))
+        self.avoid_radius = tk.DoubleVar(value=cfg("avoid_radius", 0.20))  
+        self.k_rep = tk.DoubleVar(value=cfg("k_rep", 0.70))  
 
-        # ---------- Estado robots (visión) ----------
+        # ---------- Estado robots (visiÃ³n) ----------
         # robot_state[rid] = {"x":, "y":, "yaw":, "t":}
         self.robot_state = {rid: None for rid in ROBOT_IDS}
+        self.robot_pose_history = {rid: deque(maxlen=ROBOT_POSE_HISTORY_N) for rid in ROBOT_IDS}
 
         # ---------- Objetivos ----------
         # target[rid] = (x,y) o None
         self.targets = {rid: None for rid in ROBOT_IDS}
+        self.final_targets = {rid: None for rid in ROBOT_IDS}
+        self.paths = {rid: [] for rid in ROBOT_IDS}
+
+        # ---------- Paredes / rutas ----------
+        self.walls = self.load_walls()
+        self.wall_edit_mode = tk.BooleanVar(value=False)
+        self.show_wall_field = tk.BooleanVar(value=cfg("show_wall_field", True))
+        self.pending_wall_start = None
+        self.path_grid_res = tk.DoubleVar(value=cfg("path_grid_res", PATH_GRID_RES_M))
+        self.path_clearance = tk.DoubleVar(value=cfg("path_clearance", PATH_CLEARANCE_M))
+        self.wall_field_range = tk.DoubleVar(value=cfg("wall_field_range", WALL_FIELD_DRAW_RANGE_M))
 
         # ---------- Red ----------
         self.cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.cmd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.cmd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 65536)
+        except OSError:
+            pass
 
         # Discovery: escucha respuestas
         self.disc_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.disc_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.disc_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        try:
+            self.disc_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536)
+        except OSError:
+            pass
         self.disc_sock.bind(("", DISCOVERY_PORT))
-        self.disc_sock.settimeout(0.2)
+        self.disc_sock.settimeout(0.05)
 
-        # Tabla de IPs descubiertas
-        # discovered[rid] = {"ip": str, "port": int, "t": float}
-        self.discovered = {rid: None for rid in ROBOT_IDS}
+        # Tabla de IPs descubiertas. Se conserva el ultimo endpoint valido aunque
+        # pasen varios segundos sin discovery para no cortar comandos por jitter WiFi.
+        # discovered[rid] = {"ip": str, "port": int, "t": float, "first_t": float, ...}
+        self.discovered = self.load_network_cache()
 
-        # === VISUALIZACIÓN DE FUERZAS ===
-        # Guardaremos aquí los vectores calculados para dibujarlos luego
+        # === VISUALIZACIÃ“N DE FUERZAS ===
+        # Guardaremos aquÃ­ los vectores calculados para dibujarlos luego
         self.vis_vectors = {rid: {'att': None, 'rep': None, 'res': None} for rid in ROBOT_IDS}
 
         # ---------- UI ----------
         self._setup_ui()
+        self._setup_config_autosave()
 
         # ---------- Threads ----------
         self.th_video = threading.Thread(target=self._video_loop, daemon=True)
@@ -185,6 +239,11 @@ class MultiRobotApp:
     def _setup_ui(self):
         top = tk.Frame(self.root, bg="#ddd", pady=8)
         top.pack(side=tk.TOP, fill=tk.X)
+        row1 = tk.Frame(top, bg="#ddd")
+        row1.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 3))
+        row2 = tk.Frame(top, bg="#ddd")
+        row2.pack(side=tk.TOP, fill=tk.X, padx=2)
+        top = row1
 
         tk.Label(top, text="IP cam URL:", bg="#ddd").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.url_camera, width=35).pack(side=tk.LEFT, padx=4)
@@ -211,19 +270,32 @@ class MultiRobotApp:
         ttk.Combobox(top, textvariable=self.selected_robot, values=ROBOT_IDS, width=4, state="readonly").pack(
             side=tk.LEFT)
 
+        top = row2
         tk.Checkbutton(top, text="Evitar choques", variable=self.avoid_on, bg="#ddd").pack(side=tk.LEFT, padx=8)
         tk.Label(top, text="R(m):", bg="#ddd").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.avoid_radius, width=5).pack(side=tk.LEFT)
+
+        tk.Checkbutton(top, text="Editar paredes", variable=self.wall_edit_mode, bg="#ddd").pack(side=tk.LEFT, padx=8)
+        tk.Checkbutton(top, text="Campo paredes", variable=self.show_wall_field, bg="#ddd").pack(side=tk.LEFT, padx=4)
+        tk.Button(top, text="Guardar paredes", command=self.save_walls).pack(side=tk.LEFT, padx=2)
+        tk.Button(top, text="Deshacer pared", command=self.undo_wall).pack(side=tk.LEFT, padx=2)
+        tk.Label(top, text="Clear(m):", bg="#ddd").pack(side=tk.LEFT)
+        tk.Entry(top, textvariable=self.path_clearance, width=5).pack(side=tk.LEFT)
+        tk.Label(top, text="Campo(m):", bg="#ddd").pack(side=tk.LEFT, padx=(8, 0))
+        tk.Entry(top, textvariable=self.wall_field_range, width=5).pack(side=tk.LEFT)
 
         # Ganancias
         tk.Label(top, text=" | Klin(%/m):", bg="#ddd").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.k_lin_pct_per_m, width=6).pack(side=tk.LEFT)
         tk.Label(top, text="Kang(%/rad):", bg="#ddd").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.k_ang_pct_per_rad, width=6).pack(side=tk.LEFT)
+        tk.Button(top, text="Rebuscar robots", command=self.force_robot_discovery).pack(side=tk.LEFT, padx=8)
 
         # Estado discovery
         self.lbl_net = tk.Label(top, text="Discovery: ...", bg="#ddd")
         self.lbl_net.pack(side=tk.RIGHT, padx=10)
+        self.lbl_path = tk.Label(top, text=f"Paredes: {len(self.walls)}", bg="#ddd")
+        self.lbl_path.pack(side=tk.RIGHT, padx=10)
 
         main = tk.Frame(self.root)
         main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -240,6 +312,7 @@ class MultiRobotApp:
         self.canvas = tk.Canvas(self.panel_map, bg="white", width=540, height=640)
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
+        self.canvas.bind("<Button-1>", self.on_map_left_click)  # crear paredes en modo edicion
         self.canvas.bind("<Button-3>", self.on_map_right_click)  # objetivo robot activo
         self.canvas.bind("<Button-2>", self.on_map_middle_click)  # limpiar objetivo robot activo
 
@@ -258,22 +331,219 @@ class MultiRobotApp:
         with self.lock:
             for rid in ROBOT_IDS:
                 self.targets[rid] = None
+                self.final_targets[rid] = None
+                self.paths[rid] = []
         for rid in ROBOT_IDS:
             self.send_robot_cmd(rid, 0, 0)
+
+    def on_map_left_click(self, event):
+        if not self.wall_edit_mode.get():
+            return
+
+        wx, wy = self.map_to_world(event.x, event.y)
+        if wx is None:
+            return
+
+        if self.pending_wall_start is None:
+            self.pending_wall_start = (wx, wy)
+            self.lbl_path.config(text="Pared: elige punto final")
+            return
+
+        x1, y1 = self.pending_wall_start
+        if math.hypot(wx - x1, wy - y1) >= 0.03:
+            with self.lock:
+                self.walls.append({"x1": x1, "y1": y1, "x2": wx, "y2": wy})
+                self._clear_all_paths_locked()
+            self.save_walls()
+
+        self.pending_wall_start = None
+        self.lbl_path.config(text=f"Paredes: {len(self.walls)}")
 
     def on_map_right_click(self, event):
         rid = int(self.selected_robot.get())
         tx, ty = self.map_to_world(event.x, event.y)
         if tx is None:
             return
-        with self.lock:
-            self.targets[rid] = (tx, ty)
+        self.set_planned_target(rid, tx, ty)
 
     def on_map_middle_click(self, event):
         rid = int(self.selected_robot.get())
         with self.lock:
             self.targets[rid] = None
+            self.final_targets[rid] = None
+            self.paths[rid] = []
         self.send_robot_cmd(rid, 0, 0)
+
+    def load_ui_config(self):
+        if not UI_CONFIG_FILE.exists():
+            return {}
+        try:
+            data = json.loads(UI_CONFIG_FILE.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except Exception as exc:
+            print(f"[CONFIG] No se pudo cargar configuracion de interfaz: {exc}")
+            return {}
+
+    def _setup_config_autosave(self):
+        self._persistent_vars = {
+            "url_camera": self.url_camera,
+            "real_width": self.real_width,
+            "real_height": self.real_height,
+            "robot_marker_height_m": self.robot_marker_height_m,
+            "selected_robot": self.selected_robot,
+            "k_lin_pct_per_m": self.k_lin_pct_per_m,
+            "k_ang_pct_per_rad": self.k_ang_pct_per_rad,
+            "vmax_pct": self.vmax_pct,
+            "wspin_thresh_rad": self.wspin_thresh_rad,
+            "dist_tolerance": self.dist_tolerance,
+            "k_ang_d_pct": self.k_ang_d_pct,
+            "avoid_on": self.avoid_on,
+            "avoid_radius": self.avoid_radius,
+            "k_rep": self.k_rep,
+            "show_wall_field": self.show_wall_field,
+            "path_grid_res": self.path_grid_res,
+            "path_clearance": self.path_clearance,
+            "wall_field_range": self.wall_field_range,
+        }
+        for var in self._persistent_vars.values():
+            var.trace_add("write", self.schedule_ui_config_save)
+
+    def schedule_ui_config_save(self, *_):
+        if self._config_save_job is not None:
+            self.root.after_cancel(self._config_save_job)
+        self._config_save_job = self.root.after(500, self.save_ui_config)
+
+    def save_ui_config(self):
+        self._config_save_job = None
+        data = {"version": 1}
+        for name, var in self._persistent_vars.items():
+            try:
+                data[name] = var.get()
+            except (tk.TclError, ValueError):
+                return
+        try:
+            UI_CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            print(f"[CONFIG] No se pudo guardar configuracion de interfaz: {exc}")
+
+    def load_walls(self):
+        if not WALLS_FILE.exists():
+            return []
+        try:
+            data = json.loads(WALLS_FILE.read_text(encoding="utf-8"))
+            walls = data.get("walls", data if isinstance(data, list) else [])
+            clean = []
+            for wall in walls:
+                clean.append({
+                    "x1": float(wall["x1"]),
+                    "y1": float(wall["y1"]),
+                    "x2": float(wall["x2"]),
+                    "y2": float(wall["y2"]),
+                })
+            return clean
+        except Exception as exc:
+            print(f"[WALLS] No se pudieron cargar paredes: {exc}")
+            return []
+
+    def save_walls(self):
+        with self.lock:
+            walls = list(self.walls)
+        data = {
+            "version": 1,
+            "units": "meters",
+            "walls": walls,
+        }
+        try:
+            WALLS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.lbl_path.config(text=f"Paredes: {len(walls)} guardadas")
+        except Exception as exc:
+            self.lbl_path.config(text="Error guardando paredes")
+            print(f"[WALLS] No se pudieron guardar paredes: {exc}")
+
+    def load_network_cache(self):
+        now = time.time()
+        discovered = {rid: None for rid in ROBOT_IDS}
+        if not NETWORK_CACHE_FILE.exists():
+            return discovered
+        try:
+            data = json.loads(NETWORK_CACHE_FILE.read_text(encoding="utf-8"))
+            robots = data.get("robots", {})
+            for rid in ROBOT_IDS:
+                item = robots.get(str(rid))
+                if not item:
+                    continue
+                ip = str(item["ip"])
+                port = int(item.get("port", ROBOT_CMD_PORT))
+                discovered[rid] = {
+                    "ip": ip,
+                    "port": port,
+                    "t": now - ROBOT_STALE_S - 1.0,
+                    "first_t": now,
+                    "tx_ok": 0,
+                    "tx_fail": 0,
+                    "last_cmd_t": 0.0,
+                }
+            return discovered
+        except Exception as exc:
+            print(f"[NET] No se pudo cargar cache de robots: {exc}")
+            return discovered
+
+    def save_network_cache(self):
+        with self.lock:
+            robots = {
+                str(rid): {"ip": info["ip"], "port": info["port"]}
+                for rid, info in self.discovered.items()
+                if info is not None
+            }
+        data = {"version": 1, "robots": robots}
+        try:
+            NETWORK_CACHE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as exc:
+            print(f"[NET] No se pudo guardar cache de robots: {exc}")
+
+    def undo_wall(self):
+        with self.lock:
+            if self.walls:
+                self.walls.pop()
+            self.pending_wall_start = None
+            self._clear_all_paths_locked()
+        self.save_walls()
+        self.lbl_path.config(text=f"Paredes: {len(self.walls)}")
+
+    def _clear_all_paths_locked(self):
+        for rid in ROBOT_IDS:
+            self.paths[rid] = []
+            self.final_targets[rid] = self.targets.get(rid)
+
+    def set_planned_target(self, rid, tx, ty):
+        with self.lock:
+            st = self.robot_state.get(rid)
+
+        if st is None:
+            with self.lock:
+                self.targets[rid] = (tx, ty)
+                self.final_targets[rid] = (tx, ty)
+                self.paths[rid] = []
+            self.lbl_path.config(text=f"R{rid}: directo, sin pose")
+            return
+
+        start = (float(st["x"]), float(st["y"]))
+        goal = (float(tx), float(ty))
+        path = self.plan_path(start, goal)
+
+        with self.lock:
+            self.final_targets[rid] = goal
+            if path:
+                self.paths[rid] = path[1:]
+                self.targets[rid] = self.paths[rid][0] if self.paths[rid] else goal
+            else:
+                self.paths[rid] = []
+                self.targets[rid] = goal
+
+        if path:
+            self.lbl_path.config(text=f"R{rid}: ruta {len(path)} pts")
+        else:
+            self.lbl_path.config(text=f"R{rid}: sin ruta, directo")
 
     # =========================
     # VIDEO THREAD
@@ -294,19 +564,82 @@ class MultiRobotApp:
     # =========================
     # DISCOVERY THREAD
     # =========================
+    def _camera_subnet_broadcast(self):
+        try:
+            host = urlparse(self.url_camera.get().strip()).hostname
+            if not host:
+                return None
+            parts = host.split(".")
+            if len(parts) == 4 and all(0 <= int(p) <= 255 for p in parts):
+                return ".".join(parts[:3] + ["255"])
+        except Exception:
+            pass
+        return None
+
+    def _discovery_endpoints(self):
+        endpoints = {("255.255.255.255", DISCOVERY_PORT)}
+
+        cam_bcast = self._camera_subnet_broadcast()
+        if cam_bcast:
+            endpoints.add((cam_bcast, DISCOVERY_PORT))
+
+        with self.lock:
+            known = [info for info in self.discovered.values() if info is not None]
+
+        for info in known:
+            endpoints.add((info["ip"], DISCOVERY_PORT))
+
+        return endpoints
+
+    def force_robot_discovery(self):
+        endpoints = self._discovery_endpoints()
+        for _ in range(3):
+            for endpoint in endpoints:
+                try:
+                    self.disc_sock.sendto(DISCOVERY_QUERY, endpoint)
+                except OSError:
+                    pass
+            time.sleep(0.03)
+
+    def _remember_robot(self, rid, ip, port):
+        now = time.time()
+        changed = False
+        with self.lock:
+            prev = self.discovered.get(rid)
+            first_t = now if prev is None else prev.get("first_t", now)
+            tx_ok = 0 if prev is None else prev.get("tx_ok", 0)
+            tx_fail = 0 if prev is None else prev.get("tx_fail", 0)
+            changed = prev is None or prev.get("ip") != ip or prev.get("port") != port
+            self.discovered[rid] = {
+                "ip": ip,
+                "port": port,
+                "t": now,
+                "first_t": first_t,
+                "tx_ok": tx_ok,
+                "tx_fail": tx_fail,
+                "last_cmd_t": prev.get("last_cmd_t", 0.0) if prev else 0.0,
+            }
+        if changed:
+            self.save_network_cache()
+
     def _discovery_loop(self):
         while self.running:
             try:
                 # 1) broadcast query
-                self.disc_sock.sendto(DISCOVERY_QUERY, ("255.255.255.255", DISCOVERY_PORT))
+                for endpoint in self._discovery_endpoints():
+                    try:
+                        self.disc_sock.sendto(DISCOVERY_QUERY, endpoint)
+                    except OSError:
+                        pass
 
-                # 2) leer respuestas un ratito
-                t_end = time.time() + 0.25
+                # 2) leer respuestas y anuncios espontaneos un ratito.
+                # No salimos con el primer timeout: en WiFi los paquetes llegan con jitter.
+                t_end = time.time() + DISCOVERY_LISTEN_S
                 while time.time() < t_end:
                     try:
                         data, addr = self.disc_sock.recvfrom(256)
                     except socket.timeout:
-                        break
+                        continue
 
                     msg = data.decode(errors="ignore").strip()
                     # Esperado: "ROBOT_HERE ID=1 CMDPORT=44444"
@@ -327,8 +660,7 @@ class MultiRobotApp:
                                     port = None
 
                         if rid in ROBOT_IDS and port is not None:
-                            with self.lock:
-                                self.discovered[rid] = {"ip": addr[0], "port": port, "t": time.time()}
+                            self._remember_robot(rid, addr[0], port)
 
             except Exception:
                 pass
@@ -346,15 +678,45 @@ class MultiRobotApp:
             info = self.discovered.get(rid)
 
         if info is None:
-            return  # no descubierto aún
+            return  # no descubierto aÃºn
 
         ip = info["ip"]
         port = info["port"]
         msg = f"M {left_pct} {right_pct}".encode()
+        ok = False
+        fails = 0
         try:
-            self.cmd_sock.sendto(msg, (ip, port))
+            for n in range(COMMAND_REDUNDANCY):
+                self.cmd_sock.sendto(msg, (ip, port))
+                ok = True
+                if n < COMMAND_REDUNDANCY - 1:
+                    time.sleep(COMMAND_RESEND_GAP_S)
         except Exception:
-            pass
+            fails += 1
+
+        with self.lock:
+            info = self.discovered.get(rid)
+            if info is not None:
+                if ok:
+                    info["tx_ok"] = info.get("tx_ok", 0) + 1
+                    info["last_cmd_t"] = time.time()
+                if fails:
+                    info["tx_fail"] = info.get("tx_fail", 0) + fails
+
+    def robot_net_status(self, rid, now=None):
+        if now is None:
+            now = time.time()
+        with self.lock:
+            info = self.discovered.get(rid)
+        if info is None:
+            return None, "OFF", None
+
+        age = now - info.get("t", 0.0)
+        if age <= ROBOT_WARN_S:
+            return info, "OK", age
+        if age <= ROBOT_STALE_S:
+            return info, "WARN", age
+        return info, "STALE", age
 
     # =========================
     # CONTROL THREAD (3 robots)
@@ -362,11 +724,11 @@ class MultiRobotApp:
     def _control_loop(self):
         dt = 1.0 / CMD_RATE_HZ
 
-        # === Máquina de estados por robot (reposo real / orientar / correr / evasión)
-        # IDLE  : reposo real (sin target o recién llegó)
-        # ORIENT: solo gira hasta quedar dentro de ±10°
-        # RUN   : navegación normal
-        # AVOID : evasión por repulsión (al salir vuelve a RUN, no a ORIENT)
+        # === MÃ¡quina de estados por robot (reposo real / orientar / correr / evasiÃ³n)
+        # IDLE  : reposo real (sin target o reciÃ©n llegÃ³)
+        # ORIENT: solo gira hasta quedar dentro de Â±10Â°
+        # RUN   : navegaciÃ³n normal
+        # AVOID : evasiÃ³n por repulsiÃ³n (al salir vuelve a RUN, no a ORIENT)
         if not hasattr(self, 'nav_mode'):
             self.nav_mode = {rid: "IDLE" for rid in ROBOT_IDS}
             self.prev_goal = {rid: None for rid in ROBOT_IDS}
@@ -379,12 +741,13 @@ class MultiRobotApp:
             with self.lock:
                 states = {rid: self.robot_state[rid] for rid in ROBOT_IDS}
                 targets = {rid: self.targets[rid] for rid in ROBOT_IDS}
+                walls = list(self.walls)
 
             for rid in ROBOT_IDS:
                 st = states[rid]
                 goal = targets[rid]
 
-                # --- Estado base por visión ---
+                # --- Estado base por visiÃ³n ---
                 if st is None:
                     self.send_robot_cmd(rid, 0, 0)
                     continue
@@ -395,6 +758,9 @@ class MultiRobotApp:
                     self.nav_mode[rid] = "IDLE"
                     self.prev_goal[rid] = None
                     self.prev_angle_err[rid] = 0.0
+                    with self.lock:
+                        self.paths[rid] = []
+                        self.final_targets[rid] = None
                     continue
 
                 # Si venimos de reposo real (IDLE) y ahora hay objetivo -> primero orientar
@@ -402,7 +768,7 @@ class MultiRobotApp:
                     self.nav_mode[rid] = "ORIENT"
                     self.prev_angle_err[rid] = 0.0
 
-                # Guardar el objetivo actual (para distinguir reposo real vs cambio dinámico)
+                # Guardar el objetivo actual (para distinguir reposo real vs cambio dinÃ¡mico)
                 self.prev_goal[rid] = goal
 
                 rx, ry, yaw = st["x"], st["y"], st["yaw"]
@@ -410,10 +776,28 @@ class MultiRobotApp:
 
                 # --- 1. LLEGADA ---
                 dist_goal = math.hypot(gx - rx, gy - ry)
-                if dist_goal < float(self.dist_tolerance.get()):
-                    self.send_robot_cmd(rid, 0, 0)
+                with self.lock:
+                    following_path = bool(self.paths[rid])
+                arrival_tol = float(self.dist_tolerance.get())
+                if following_path:
+                    arrival_tol = max(arrival_tol, PATH_WAYPOINT_REACHED_M)
+                if dist_goal < arrival_tol:
+                    next_goal = None
                     with self.lock:
-                        self.targets[rid] = None
+                        if self.paths[rid] and self.targets[rid] == self.paths[rid][0]:
+                            self.paths[rid].pop(0)
+                        if self.paths[rid]:
+                            next_goal = self.paths[rid][0]
+                            self.targets[rid] = next_goal
+                        else:
+                            self.targets[rid] = None
+                            self.final_targets[rid] = None
+
+                    if next_goal is not None:
+                        self.prev_angle_err[rid] = 0.0
+                        continue
+
+                    self.send_robot_cmd(rid, 0, 0)
 
                     # Reposo real
                     self.nav_mode[rid] = "IDLE"
@@ -421,7 +805,7 @@ class MultiRobotApp:
                     self.prev_angle_err[rid] = 0.0
                     continue
 
-                # --- 2. ATRACCIÓN ---
+                # --- 2. ATRACCIÃ“N ---
                 dist_vector = np.array([gx - rx, gy - ry], dtype=np.float32)
                 norm_goal = float(np.linalg.norm(dist_vector))
                 if norm_goal > 1e-6:
@@ -429,7 +813,7 @@ class MultiRobotApp:
                 else:
                     u_goal = np.array([0.0, 0.0], dtype=np.float32)
 
-                # --- 3. REPULSIÓN (Simple, sin tangencial) ---
+                # --- 3. REPULSIÃ“N (Simple, sin tangencial) ---
                 u_rep = np.array([0.0, 0.0], dtype=np.float32)
 
                 if self.avoid_on.get():
@@ -466,7 +850,29 @@ class MultiRobotApp:
                     if (H - ry) < wall_d0:
                         u_rep += np.array([0.0, -wall_k * (1.0 / max(H - ry, 1e-3) - 1.0 / wall_d0)], dtype=np.float32)
 
-                # Limitar repulsión
+                    wall_clearance = max(float(self.path_clearance.get()), 0.03)
+                    wall_range = max(float(self.wall_field_range.get()), wall_clearance + 0.02)
+                    for wall in walls:
+                        ax, ay = wall["x1"], wall["y1"]
+                        bx, by = wall["x2"], wall["y2"]
+                        abx = bx - ax
+                        aby = by - ay
+                        den = abx * abx + aby * aby
+                        if den <= 1e-12:
+                            qx, qy = ax, ay
+                        else:
+                            t = ((rx - ax) * abx + (ry - ay) * aby) / den
+                            t = clamp(t, 0.0, 1.0)
+                            qx = ax + t * abx
+                            qy = ay + t * aby
+                        dx = rx - qx
+                        dy = ry - qy
+                        d = math.hypot(dx, dy)
+                        if 1e-6 < d < wall_range:
+                            mag = wall_k * (1.0 / d - 1.0 / wall_range) / (d * d)
+                            u_rep += mag * np.array([dx, dy], dtype=np.float32)
+
+                # Limitar repulsiÃ³n
                 norm_rep = float(np.linalg.norm(u_rep))
                 MAX_REPULSION = 1.0
                 if norm_rep > MAX_REPULSION:
@@ -489,24 +895,24 @@ class MultiRobotApp:
                 # Heading hacia el objetivo PURO (para ORIENT de reposo real)
                 desired_heading_goal = math.atan2(float(u_goal[1]), float(u_goal[0]))
 
-                # Heading hacia la resultante (objetivo + repulsión) para RUN/AVOID
+                # Heading hacia la resultante (objetivo + repulsiÃ³n) para RUN/AVOID
                 desired_heading_res = math.atan2(float(u[1]), float(u[0]))
 
                 mode = self.nav_mode.get(rid, "IDLE")
 
-                # --- 5.1 Cambiar a modo evasión si hay repulsión relevante ---
+                # --- 5.1 Cambiar a modo evasiÃ³n si hay repulsiÃ³n relevante ---
                 IS_SAFE_ZONE = (norm_rep < 0.15)  # tu criterio actual
                 if self.avoid_on.get() and (not IS_SAFE_ZONE):
                     if mode != "AVOID":
                         self.prev_angle_err[rid] = 0.0
                     mode = "AVOID"
                 else:
-                    # Si estábamos evitando y ya salimos, volvemos a RUN (NO a ORIENT)
+                    # Si estÃ¡bamos evitando y ya salimos, volvemos a RUN (NO a ORIENT)
                     if mode == "AVOID":
                         self.prev_angle_err[rid] = 0.0
                         mode = "RUN"
 
-                # --- 5.2 Elegir heading según modo ---
+                # --- 5.2 Elegir heading segÃºn modo ---
                 if mode == "ORIENT":
                     desired_heading = desired_heading_goal
                 else:
@@ -529,17 +935,17 @@ class MultiRobotApp:
                 angular_val = clamp(angular_raw, -vmax, vmax)
 
                 # === AJUSTE: velocidad de giro SOLO en ORIENT (reposo real) ===
-                # Aumenta o disminuye la rapidez con la que gira mientras está "alineándose" en reposo real.
+                # Aumenta o disminuye la rapidez con la que gira mientras estÃ¡ "alineÃ¡ndose" en reposo real.
                 mode_now = self.nav_mode.get(rid, "IDLE")
 
-                ORIENT_TURN_GAIN = 1.4  # subir para girar más rápido (ej: 2.5)
-                ORIENT_MIN_TURN = 10.0  # mínimo de giro (%) para que no se quede "temblando" 
+                ORIENT_TURN_GAIN = 1.4  # subir para girar mÃ¡s rÃ¡pido (ej: 2.5)
+                ORIENT_MIN_TURN = 10.0  # mÃ­nimo de giro (%) para que no se quede "temblando" 
 
                 if mode_now == "ORIENT":
                     # Escalar la orden angular
                     angular_val *= ORIENT_TURN_GAIN
 
-                    # Asegurar un mínimo de giro para vencer fricción / zona muerta
+                    # Asegurar un mÃ­nimo de giro para vencer fricciÃ³n / zona muerta
                     if abs(angular_val) < ORIENT_MIN_TURN and abs(angle_err) > math.radians(2.0):
                         angular_val = math.copysign(ORIENT_MIN_TURN, angular_val if angular_val != 0 else angle_err)
 
@@ -549,14 +955,14 @@ class MultiRobotApp:
                 # 1. Throttle por distancia (igual que antes)
                 dist_factor = min(dist_goal / 0.15, 1.0)
 
-                # 2. Márgenes (en rad)
-                MARGIN_ORIENT = math.radians(15.0)  # ±10°
-                MARGIN_RUN = math.radians(286.0)  # "286°"
+                # 2. MÃ¡rgenes (en rad)
+                MARGIN_ORIENT = math.radians(15.0)  # Â±10Â°
+                MARGIN_RUN = math.radians(286.0)  # "286Â°"
                 MARGIN_RUN = min(MARGIN_RUN, math.pi)
 
-                # 3. Lógica por estados
+                # 3. LÃ³gica por estados
                 if mode == "ORIENT":
-                    # En ORIENT: no avanza, solo gira hasta quedar dentro de ±10°
+                    # En ORIENT: no avanza, solo gira hasta quedar dentro de Â±10Â°
                     align_factor = 0.0
                     dist_factor = 0.0  # fuerza lineal=0
 
@@ -565,16 +971,16 @@ class MultiRobotApp:
                         self.prev_angle_err[rid] = 0.0
 
                 elif mode == "RUN":
-                    # En RUN: aplica tu lógica normal en zona segura
+                    # En RUN: aplica tu lÃ³gica normal en zona segura
                     if IS_SAFE_ZONE:
                         align_factor = 1.0 if abs(angle_err) <= MARGIN_RUN else 0.0
                     else:
-                        # Si por algún motivo estamos RUN pero aparece repulsión,
+                        # Si por algÃºn motivo estamos RUN pero aparece repulsiÃ³n,
                 
                         align_factor = max(0.0, math.cos(angle_err))
 
                 else:  # AVOID
-                    # Evasión: mantenemos coseno 
+                    # EvasiÃ³n: mantenemos coseno 
                     align_factor = max(0.0, math.cos(angle_err))
 
                 # Guardar modo final
@@ -582,8 +988,8 @@ class MultiRobotApp:
 
                 # Si align_factor es bajo (robot frenado o curveando cerrado),
                 if mode != "ORIENT" and align_factor < 0.5:
-                    # Interpolación Lineal Inversa:
-                    # - Si align_factor es 0.0 (Parado) -> Boost = 3.5 (Giro muy rápido)
+                    # InterpolaciÃ³n Lineal Inversa:
+                    # - Si align_factor es 0.0 (Parado) -> Boost = 3.5 (Giro muy rÃ¡pido)
                     # - Si align_factor es 0.4 (Curva)  -> Boost = 1.5 (Giro alegre)
                     # - Si align_factor es 0.5 (Recto)  -> Boost = 1.0 (Normal)
 
@@ -615,7 +1021,7 @@ class MultiRobotApp:
             time.sleep(dt)
 
     # =========================
-    # VISION: detección + homografía
+    # VISION: detecciÃ³n + homografÃ­a
     # =========================
     def _get_marker_center(self, corners_4x2):
         return np.mean(corners_4x2, axis=0)
@@ -685,7 +1091,7 @@ class MultiRobotApp:
         img_pts = np.array(img_pts, dtype=np.float32)
         obj_pts = np.array(obj_pts, dtype=np.float32)
 
-        # 2) Matriz intrínseca (K) y Distorsión (dist)
+        # 2) Matriz intrÃ­nseca (K) y DistorsiÃ³n (dist)
         if None not in (CAM_FX, CAM_FY, CAM_CX, CAM_CY, CAM_DIST):
             # Usar valores reales calibrados
             K = np.array([[CAM_FX, 0, CAM_CX],
@@ -693,7 +1099,7 @@ class MultiRobotApp:
                           [0, 0, 1]], dtype=np.float32)
             dist = np.array(CAM_DIST, dtype=np.float32)
         else:
-            # Usar aproximación (fallback)
+            # Usar aproximaciÃ³n (fallback)
             f = 0.95 * w_img
             K = np.array([[f, 0, w_img / 2],
                           [0, f, h_img / 2],
@@ -706,35 +1112,97 @@ class MultiRobotApp:
             return None
 
         R, _ = cv2.Rodrigues(rvec)
-        C = (-R.T @ tvec).reshape(-1)  # cámara en coords del mundo
+        C = (-R.T @ tvec).reshape(-1)  # cÃ¡mara en coords del mundo
         if C[2] < 0.40:
             return None
         return (float(C[0]), float(C[1]), float(C[2]))
 
     def _parallax_correct_xy(self, x_floor, y_floor, cam_pos, h_obj):
         """
-        Dado el punto que te da la homografía (intersección con suelo z=0),
+        Dado el punto que te da la homografÃ­a (intersecciÃ³n con suelo z=0),
         corrige para obtener el XY del objeto a altura h_obj (m) sobre el suelo.
 
-        Fórmula: P_h = Cxy + ((Cz - h)/Cz) * (P0 - Cxy)
+        FÃ³rmula: P_h = Cxy + ((Cz - h)/Cz) * (P0 - Cxy)
         """
         if cam_pos is None:
             return x_floor, y_floor
 
         cx, cy, cz = cam_pos
         if cz <= (h_obj + 0.1):
-            return x_floor, y_floor  # evita división rara
+            return x_floor, y_floor  # evita divisiÃ³n rara
 
-        s = (cz - h_obj) / cz  # < 1  (trae el punto hacia la cámara)
+        s = (cz - h_obj) / cz  # < 1  (trae el punto hacia la cÃ¡mara)
 
-        # === LIMITADOR DE EXPLOSIÓN ===
-        # Si la corrección intenta mover el punto más de un 200% relativo al centro, lo ignoramos
+        # === LIMITADOR DE EXPLOSIÃ“N ===
+        # Si la correcciÃ³n intenta mover el punto mÃ¡s de un 200% relativo al centro, lo ignoramos
         if abs(s) > 2.0:
             return x_floor, y_floor
 
         x = cx + (x_floor - cx) * s
         y = cy + (y_floor - cy) * s
         return x, y
+
+    def _valid_robot_pose(self, x, y, prev_st, now):
+        W = float(self.real_width.get())
+        H = float(self.real_height.get())
+        margin = ROBOT_POSE_MARGIN_M
+        if not (-margin <= x <= W + margin and -margin <= y <= H + margin):
+            return False
+
+        if prev_st is None:
+            return True
+
+        px, py = prev_st["x"], prev_st["y"]
+        prev_in_workspace = (-margin <= px <= W + margin and -margin <= py <= H + margin)
+        if not prev_in_workspace:
+            return True
+
+        age = now - prev_st.get("t", 0.0)
+        jump = math.hypot(x - px, y - py)
+        if age < 1.0 and jump > ROBOT_MAX_JUMP_M:
+            return False
+        return True
+
+    def _filtered_robot_pose(self, rid, rx_raw, ry_raw, yaw_raw, prev_st, now):
+        hist = self.robot_pose_history[rid]
+        if prev_st is not None and (now - prev_st.get("t", 0.0)) > 1.0:
+            hist.clear()
+        hist.append((rx_raw, ry_raw, yaw_raw))
+
+        xs = [p[0] for p in hist]
+        ys = [p[1] for p in hist]
+        yaws = [p[2] for p in hist]
+        x_med = float(np.median(xs))
+        y_med = float(np.median(ys))
+
+        sin_sum = sum(math.sin(a) for a in yaws)
+        cos_sum = sum(math.cos(a) for a in yaws)
+        yaw_med = math.atan2(sin_sum, cos_sum)
+
+        if prev_st is None:
+            return x_med, y_med, yaw_med
+
+        prev_x, prev_y = prev_st["x"], prev_st["y"]
+        prev_yaw = prev_st["yaw"]
+        dist_moved = math.hypot(x_med - prev_x, y_med - prev_y)
+        yaw_diff = wrap_pi(yaw_med - prev_yaw)
+
+        if dist_moved < ROBOT_RAW_DEADZONE_M:
+            x_final = prev_x
+            y_final = prev_y
+        else:
+            move_ratio = clamp(dist_moved / ROBOT_FAST_MOVE_M, 0.0, 1.0)
+            alpha = ROBOT_SLOW_ALPHA + (ROBOT_FAST_ALPHA - ROBOT_SLOW_ALPHA) * move_ratio
+            x_final = (prev_x * (1.0 - alpha)) + (x_med * alpha)
+            y_final = (prev_y * (1.0 - alpha)) + (y_med * alpha)
+
+        if abs(yaw_diff) < ROBOT_YAW_DEADZONE_RAD:
+            yaw_final = prev_yaw
+        else:
+            yaw_alpha = 0.22 if abs(yaw_diff) < math.radians(12.0) else 0.45
+            yaw_final = wrap_pi(prev_yaw + yaw_diff * yaw_alpha)
+
+        return x_final, y_final, yaw_final
 
 
     def process_frame(self, frame):
@@ -753,7 +1221,7 @@ class MultiRobotApp:
         # refrescar states si no se ve
         now = time.time()
 
-        # Diccionario para guardar dónde están las esquinas RAW (crudas) en este frame
+        # Diccionario para guardar dÃ³nde estÃ¡n las esquinas RAW (crudas) en este frame
         current_raw_corners = {}
 
         if ids is not None:
@@ -770,9 +1238,9 @@ class MultiRobotApp:
             # 2. LOGICA DE HISTERESIS FUERTE PARA EL WORKSPACE (IDs 4,5,6,7)
             # ==================================================================
 
-            # Umbral alto: El marcador debe moverse más de X px para ser actualizado.
+            # Umbral alto: El marcador debe moverse mÃ¡s de X px para ser actualizado.
             HEAVY_LOCK_THRESHOLD = 15.0
-            WS_ALPHA = 0.8  # Velocidad de actualización 
+            WS_ALPHA = 0.8  # Velocidad de actualizaciÃ³n 
 
             for mid in [4, 5, 6, 7]:
                 if mid in current_raw_corners:
@@ -785,22 +1253,22 @@ class MultiRobotApp:
                         self.ws_center_filt[mid] = raw_p
                         self.ws_last_seen[mid] = now
                     else:
-                        # Ya lo conocíamos. Calculamos cuánto se movió respecto al ANCLA.
+                        # Ya lo conocÃ­amos. Calculamos cuÃ¡nto se moviÃ³ respecto al ANCLA.
                         dist_moved = np.linalg.norm(raw_p - prev)
 
                         if dist_moved > HEAVY_LOCK_THRESHOLD:
-                            # CAMBIO INTENCIONAL: El usuario movió el marcador lejos.
+                            # CAMBIO INTENCIONAL: El usuario moviÃ³ el marcador lejos.
                             # Actualizamos el filtro (suavemente para no saltar de golpe)
                             self.ws_center_filt[mid] = (WS_ALPHA * prev) + ((1.0 - WS_ALPHA) * raw_p)
                             self.ws_last_seen[mid] = now
                         else:
-                            # RUIDO / VIBRACIÓN: El marcador se movió poco (ej. 4px).
+                            # RUIDO / VIBRACIÃ“N: El marcador se moviÃ³ poco (ej. 4px).
                             # IGNORAMOS la nueva lectura. Mantenemos 'prev' inmutable.
                             # Solo actualizamos el tiempo 'last_seen' para saber que sigue vivo.
                             self.ws_last_seen[mid] = now
 
             # ==================================================================
-            # 3. DIBUJAR LÍNEAS AMARILLAS USANDO LOS DATOS FILTRADOS (ESTABLES)
+            # 3. DIBUJAR LÃNEAS AMARILLAS USANDO LOS DATOS FILTRADOS (ESTABLES)
             # ==================================================================
 
             pts_draw = []
@@ -819,14 +1287,14 @@ class MultiRobotApp:
                 cv2.polylines(display, [pts_np], True, (0, 255, 255), 3)
 
             # ==================================================================
-            # 4. CALCULO DE HOMOGRAFÍA (Usando los centros filtrados)
+            # 4. CALCULO DE HOMOGRAFÃA (Usando los centros filtrados)
             # ==================================================================
 
             W = float(self.real_width.get())
             H = float(self.real_height.get())
 
             # Verificar si todos los marcadores 4..7 han sido vistos recientemente
-            # (aunque no estén en este frame exacto, usamos su memoria)
+            # (aunque no estÃ©n en este frame exacto, usamos su memoria)
             def _recent(mid):
                 return (mid in self.ws_center_filt) and (
                         (now - self.ws_last_seen.get(mid, 0)) <= self.homography_hold_s)
@@ -855,7 +1323,7 @@ class MultiRobotApp:
                     jump = float(np.linalg.norm(A - B))
                     if jump > 0.8: Hm_new = None
 
-            # Actualizar homografía global
+            # Actualizar homografÃ­a global
             with self.lock:
                 if Hm_new is not None:
                     if self.homography is None:
@@ -903,32 +1371,12 @@ class MultiRobotApp:
                         with self.lock:
                             prev_st = self.robot_state[mid]
 
-                        final_x, final_y, final_yaw = rx_raw, ry_raw, yaw_raw
+                        if not self._valid_robot_pose(rx_raw, ry_raw, prev_st, now):
+                            continue
 
-                        if prev_st is not None:
-                            prev_x, prev_y = prev_st["x"], prev_st["y"]
-                            prev_yaw = prev_st["yaw"]
-
-                            # A) Zona Muerta: Si se movió menos de 5mm, es ruido -> MANTENER ANTERIOR
-                            dist_moved = math.hypot(rx_raw - prev_x, ry_raw - prev_y)
-                            DEADZONE_M = 0.005  # 5 milímetros
-
-                            if dist_moved < DEADZONE_M:
-                                final_x = prev_x
-                                final_y = prev_y
-                                # Mantenemos el yaw anterior también para evitar giros fantasma
-                                final_yaw = prev_yaw
-                            else:
-                                # B) Filtro Suavizado (EMA): Si se movió, interpolamos
-                                # alpha bajo = mucho suavizado (lento), alpha alto = poco suavizado (rápido)
-                                ROBOT_ALPHA = 0.4  # 40% dato nuevo, 60% historia
-
-                                final_x = (prev_x * (1.0 - ROBOT_ALPHA)) + (rx_raw * ROBOT_ALPHA)
-                                final_y = (prev_y * (1.0 - ROBOT_ALPHA)) + (ry_raw * ROBOT_ALPHA)
-
-                                # Interpolación angular correcta (evita el problema de -pi a pi)
-                                diff = wrap_pi(yaw_raw - prev_yaw)
-                                final_yaw = wrap_pi(prev_yaw + (diff * ROBOT_ALPHA))
+                        final_x, final_y, final_yaw = self._filtered_robot_pose(
+                            mid, rx_raw, ry_raw, yaw_raw, prev_st, now
+                        )
 
                         # 3. Guardar estado final
                         with self.lock:
@@ -941,13 +1389,199 @@ class MultiRobotApp:
 
         # Limpieza de viejos
         with self.lock:
-            # Discovery cleanup
+            # Discovery cleanup: no borrar durante cortes cortos de WiFi; conservar
+            # el ultimo endpoint para que el envio UDP pueda seguir reintentando.
             for rid in ROBOT_IDS:
                 info = self.discovered[rid]
-                if info is not None and (time.time() - info["t"]) > ROBOT_STALE_S:
+                if info is not None and (time.time() - info["t"]) > ROBOT_FORGET_S:
                     self.discovered[rid] = None
 
         return display
+
+    # =========================
+    # PAREDES / PLANIFICACION
+    # =========================
+    def _point_segment_distance(self, px, py, ax, ay, bx, by):
+        abx = bx - ax
+        aby = by - ay
+        den = abx * abx + aby * aby
+        if den <= 1e-12:
+            return math.hypot(px - ax, py - ay)
+        t = ((px - ax) * abx + (py - ay) * aby) / den
+        t = clamp(t, 0.0, 1.0)
+        qx = ax + t * abx
+        qy = ay + t * aby
+        return math.hypot(px - qx, py - qy)
+
+    def _ccw(self, ax, ay, bx, by, cx, cy):
+        return (cy - ay) * (bx - ax) > (by - ay) * (cx - ax)
+
+    def _segments_intersect(self, a, b, c, d):
+        ax, ay = a
+        bx, by = b
+        cx, cy = c
+        dx, dy = d
+        return (self._ccw(ax, ay, cx, cy, dx, dy) != self._ccw(bx, by, cx, cy, dx, dy) and
+                self._ccw(ax, ay, bx, by, cx, cy) != self._ccw(ax, ay, bx, by, dx, dy))
+
+    def _segment_segment_distance(self, a, b, c, d):
+        if self._segments_intersect(a, b, c, d):
+            return 0.0
+        ax, ay = a
+        bx, by = b
+        cx, cy = c
+        dx, dy = d
+        return min(
+            self._point_segment_distance(ax, ay, cx, cy, dx, dy),
+            self._point_segment_distance(bx, by, cx, cy, dx, dy),
+            self._point_segment_distance(cx, cy, ax, ay, bx, by),
+            self._point_segment_distance(dx, dy, ax, ay, bx, by),
+        )
+
+    def _point_hits_wall(self, x, y, walls, clearance):
+        for wall in walls:
+            d = self._point_segment_distance(x, y, wall["x1"], wall["y1"], wall["x2"], wall["y2"])
+            if d <= clearance:
+                return True
+        return False
+
+    def _edge_hits_wall(self, p0, p1, walls, clearance):
+        for wall in walls:
+            w0 = (wall["x1"], wall["y1"])
+            w1 = (wall["x2"], wall["y2"])
+            if self._segment_segment_distance(p0, p1, w0, w1) <= clearance:
+                return True
+        return False
+
+    def _wall_repulsion_vector(self, x, y, walls, wall_k, wall_range):
+        u_rep = np.array([0.0, 0.0], dtype=np.float32)
+        for wall in walls:
+            ax, ay = wall["x1"], wall["y1"]
+            bx, by = wall["x2"], wall["y2"]
+            abx = bx - ax
+            aby = by - ay
+            den = abx * abx + aby * aby
+            if den <= 1e-12:
+                qx, qy = ax, ay
+            else:
+                t = ((x - ax) * abx + (y - ay) * aby) / den
+                t = clamp(t, 0.0, 1.0)
+                qx = ax + t * abx
+                qy = ay + t * aby
+
+            dx = x - qx
+            dy = y - qy
+            d = math.hypot(dx, dy)
+            if 1e-6 < d < wall_range:
+                mag = wall_k * (1.0 / d - 1.0 / wall_range) / (d * d)
+                u_rep += mag * np.array([dx, dy], dtype=np.float32)
+        return u_rep
+
+    def _smooth_path(self, path, walls, clearance):
+        if len(path) <= 2:
+            return path
+
+        smooth = [path[0]]
+        i = 0
+        while i < len(path) - 1:
+            j = len(path) - 1
+            while j > i + 1:
+                if not self._edge_hits_wall(path[i], path[j], walls, clearance):
+                    break
+                j -= 1
+            smooth.append(path[j])
+            i = j
+        return smooth
+
+    def plan_path(self, start, goal):
+        W = float(self.real_width.get())
+        H = float(self.real_height.get())
+        res = clamp(float(self.path_grid_res.get()), 0.015, 0.20)
+        clearance = clamp(float(self.path_clearance.get()), 0.0, 0.25)
+
+        with self.lock:
+            walls = list(self.walls)
+
+        if not walls:
+            return [start, goal]
+
+        cols = max(2, int(math.ceil(W / res)) + 1)
+        rows = max(2, int(math.ceil(H / res)) + 1)
+
+        def to_cell(p):
+            x, y = p
+            return (
+                int(clamp(round(x / res), 0, cols - 1)),
+                int(clamp(round(y / res), 0, rows - 1)),
+            )
+
+        def to_world(cell):
+            ci, cj = cell
+            return (
+                clamp(ci * res, 0.0, W),
+                clamp(cj * res, 0.0, H),
+            )
+
+        start_cell = to_cell(start)
+        goal_cell = to_cell(goal)
+
+        def blocked(cell):
+            if cell == start_cell or cell == goal_cell:
+                return False
+            x, y = to_world(cell)
+            return self._point_hits_wall(x, y, walls, clearance)
+
+        if start_cell == goal_cell:
+            return [start, goal]
+
+        neighbors = [
+            (-1, 0), (1, 0), (0, -1), (0, 1),
+            (-1, -1), (-1, 1), (1, -1), (1, 1),
+        ]
+
+        open_heap = []
+        heapq.heappush(open_heap, (0.0, start_cell))
+        came_from = {}
+        g_score = {start_cell: 0.0}
+        visited = set()
+
+        def heuristic(cell):
+            return math.hypot(goal_cell[0] - cell[0], goal_cell[1] - cell[1]) * res
+
+        while open_heap:
+            _, current = heapq.heappop(open_heap)
+            if current in visited:
+                continue
+            visited.add(current)
+
+            if current == goal_cell:
+                cells = [current]
+                while current in came_from:
+                    current = came_from[current]
+                    cells.append(current)
+                cells.reverse()
+                path = [start]
+                path.extend(to_world(cell) for cell in cells[1:-1])
+                path.append(goal)
+                return self._smooth_path(path, walls, clearance)
+
+            for di, dj in neighbors:
+                nb = (current[0] + di, current[1] + dj)
+                if not (0 <= nb[0] < cols and 0 <= nb[1] < rows):
+                    continue
+                if blocked(nb):
+                    continue
+                if self._edge_hits_wall(to_world(current), to_world(nb), walls, clearance):
+                    continue
+
+                step_cost = math.hypot(di, dj) * res
+                tentative = g_score[current] + step_cost
+                if tentative < g_score.get(nb, float("inf")):
+                    came_from[nb] = current
+                    g_score[nb] = tentative
+                    heapq.heappush(open_heap, (tentative + heuristic(nb), nb))
+
+        return None
 
     # =========================
     # MAPA 2D
@@ -981,6 +1615,45 @@ class MultiRobotApp:
         y = clamp(y, 0.0, H)
         return x, y
 
+    def draw_wall_field(self, walls, cw, ch, W, H):
+        if not walls or not self.show_wall_field.get():
+            return
+
+        wall_range = max(float(self.wall_field_range.get()), 0.01)
+        dash = (4, 4)
+
+        for wall in walls:
+            x1, y1 = wall["x1"], wall["y1"]
+            x2, y2 = wall["x2"], wall["y2"]
+            dx = x2 - x1
+            dy = y2 - y1
+            length = math.hypot(dx, dy)
+            if length <= 1e-6:
+                continue
+
+            nx = -dy / length
+            ny = dx / length
+            a1 = (x1 + nx * wall_range, y1 + ny * wall_range)
+            a2 = (x2 + nx * wall_range, y2 + ny * wall_range)
+            b1 = (x1 - nx * wall_range, y1 - ny * wall_range)
+            b2 = (x2 - nx * wall_range, y2 - ny * wall_range)
+
+            ma1 = self.world_to_map(a1[0], a1[1], cw, ch, W, H)
+            ma2 = self.world_to_map(a2[0], a2[1], cw, ch, W, H)
+            mb1 = self.world_to_map(b1[0], b1[1], cw, ch, W, H)
+            mb2 = self.world_to_map(b2[0], b2[1], cw, ch, W, H)
+
+            self.canvas.create_line(ma1[0], ma1[1], ma2[0], ma2[1], fill="#e67e22", width=1, dash=dash)
+            self.canvas.create_line(mb1[0], mb1[1], mb2[0], mb2[1], fill="#e67e22", width=1, dash=dash)
+
+            c1x, c1y, scale, _, _ = self.world_to_map(x1, y1, cw, ch, W, H)
+            c2x, c2y, _, _, _ = self.world_to_map(x2, y2, cw, ch, W, H)
+            r = wall_range * scale
+            self.canvas.create_oval(c1x - r, c1y - r, c1x + r, c1y + r,
+                                    outline="#e67e22", width=1, dash=dash)
+            self.canvas.create_oval(c2x - r, c2y - r, c2x + r, c2y + r,
+                                    outline="#e67e22", width=1, dash=dash)
+
     def draw_map(self):
         self.canvas.delete("all")
 
@@ -1009,9 +1682,9 @@ class MultiRobotApp:
             # Convertimos coordenada mundo a pixel
             cmx, cmy, _, _, _ = self.world_to_map(cx, cy, cw, ch, W, H)
 
-            # Ajustamos un poquito el texto para que no quede encima de la línea
-            # Si es la parte de abajo (cy < H/2), texto más abajo (+15)
-            # Si es la parte de arriba, texto más arriba (-15)
+            # Ajustamos un poquito el texto para que no quede encima de la lÃ­nea
+            # Si es la parte de abajo (cy < H/2), texto mÃ¡s abajo (+15)
+            # Si es la parte de arriba, texto mÃ¡s arriba (-15)
             offset_y = 15 if cy < H / 2 else -15
 
             self.canvas.create_text(cmx, cmy + offset_y, text=f"ID {cid}", fill="blue", font=("Arial", 10, "bold"))
@@ -1019,16 +1692,55 @@ class MultiRobotApp:
         # Targets
         with self.lock:
             targets = dict(self.targets)
+            final_targets = dict(self.final_targets)
+            paths = {rid: list(path) for rid, path in self.paths.items()}
             states = dict(self.robot_state)
             discovered = dict(self.discovered)
+            walls = list(self.walls)
+
+        for wall in walls:
+            x1, y1 = wall["x1"], wall["y1"]
+            x2, y2 = wall["x2"], wall["y2"]
+            mx1, my1, _, _, _ = self.world_to_map(x1, y1, cw, ch, W, H)
+            mx2, my2, _, _, _ = self.world_to_map(x2, y2, cw, ch, W, H)
+            self.canvas.create_line(mx1, my1, mx2, my2, fill="#5b2c06", width=5, capstyle=tk.ROUND)
+
+        self.draw_wall_field(walls, cw, ch, W, H)
+
+        if self.pending_wall_start is not None:
+            sx, sy = self.pending_wall_start
+            smx, smy, _, _, _ = self.world_to_map(sx, sy, cw, ch, W, H)
+            self.canvas.create_oval(smx - 5, smy - 5, smx + 5, smy + 5, fill="#5b2c06", outline="")
+
+        for rid, path in paths.items():
+            if not path:
+                continue
+            pts = []
+            st = states.get(rid)
+            if st is not None:
+                pts.append((st["x"], st["y"]))
+            pts.extend(path)
+            if len(pts) >= 2:
+                map_pts = []
+                for px, py in pts:
+                    pmx, pmy, _, _, _ = self.world_to_map(px, py, cw, ch, W, H)
+                    map_pts.extend([pmx, pmy])
+                self.canvas.create_line(*map_pts, fill="#0b84a5", width=2, dash=(5, 3), arrow=tk.LAST)
+
+        for rid, goal in final_targets.items():
+            if goal is None:
+                continue
+            gx, gy = goal
+            mx, my, _, _, _ = self.world_to_map(gx, gy, cw, ch, W, H)
+            self.canvas.create_oval(mx - 8, my - 8, mx + 8, my + 8, outline="red", width=2)
+            self.canvas.create_text(mx, my - 16, text=f"G{rid}", fill="red")
 
         for rid, goal in targets.items():
             if goal is None:
                 continue
             gx, gy = goal
-            mx, my, _, _, _ = self.world_to_map(gx, gy, cw, ch, W, H)  # Usa la nueva función
-            self.canvas.create_oval(mx - 6, my - 6, mx + 6, my + 6, fill="red", outline="")
-            self.canvas.create_text(mx, my - 14, text=f"G{rid}", fill="red")
+            mx, my, _, _, _ = self.world_to_map(gx, gy, cw, ch, W, H)  # Usa la nueva funciÃ³n
+            self.canvas.create_oval(mx - 4, my - 4, mx + 4, my + 4, fill="#f39c12", outline="")
 
         # Robots
         for rid, st in states.items():
@@ -1037,7 +1749,9 @@ class MultiRobotApp:
             rx, ry, yaw = st["x"], st["y"], st["yaw"]
 
             # Convertir a pixeles con la Y invertida
-            mx, my, _, _, _ = self.world_to_map(rx, ry, cw, ch, W, H)
+            rx_draw = clamp(rx, 0.0, W)
+            ry_draw = clamp(ry, 0.0, H)
+            mx, my, _, _, _ = self.world_to_map(rx_draw, ry_draw, cw, ch, W, H)
 
             # color simple por ID
             color = {1: "#2ecc71", 2: "#3498db", 3: "#9b59b6"}.get(rid, "green")
@@ -1055,10 +1769,20 @@ class MultiRobotApp:
             if info is None:
                 self.canvas.create_text(mx, my - 18, text="NO NET", fill="red")
             else:
-                self.canvas.create_text(mx, my - 18, text=info["ip"], fill="gray25")
+                age = time.time() - info.get("t", 0.0)
+                if age <= ROBOT_WARN_S:
+                    net_color = "gray25"
+                    net_text = info["ip"]
+                elif age <= ROBOT_STALE_S:
+                    net_color = "#b9770e"
+                    net_text = f"{info['ip']} {age:.0f}s"
+                else:
+                    net_color = "red"
+                    net_text = f"STALE {age:.0f}s"
+                self.canvas.create_text(mx, my - 18, text=net_text, fill=net_color)
 
             # === DIBUJAR FUERZAS Y PAREDES ===
-            # 1. Dibujar Zona de Paredes (Rectángulo Rojo Tenue)
+            # 1. Dibujar Zona de Paredes (RectÃ¡ngulo Rojo Tenue)
             wall_d0 = 0.025  # El mismo valor que en control
             wx0, wy0, _, _, _ = self.world_to_map(wall_d0, wall_d0, cw, ch, W, H)
             wx1, wy1, _, _, _ = self.world_to_map(W - wall_d0, H - wall_d0, cw, ch, W, H)
@@ -1074,28 +1798,28 @@ class MultiRobotApp:
                 st = self.robot_state.get(rid)
                 if st is None: continue
 
-                # Posición del robot en pixeles
+                # PosiciÃ³n del robot en pixeles
                 mx, my, _, _, _ = self.world_to_map(st["x"], st["y"], cw, ch, W, H)
 
-                # Dibujar Radio de Evasión (Círculo punteado)
+                # Dibujar Radio de EvasiÃ³n (CÃ­rculo punteado)
                 r_pix = float(self.avoid_radius.get()) * scale
                 self.canvas.create_oval(mx - r_pix, my - r_pix, mx + r_pix, my + r_pix,
                                         outline="#FFA500", dash=(2, 2))
 
-                # Dibujar Flechas (Atracción, Repulsión, Resultante)
-                # Nota: En pantalla Y crece hacia abajo, en matemáticas hacia arriba.
+                # Dibujar Flechas (AtracciÃ³n, RepulsiÃ³n, Resultante)
+                # Nota: En pantalla Y crece hacia abajo, en matemÃ¡ticas hacia arriba.
                 # Por eso restamos vector_y (my - vy).
 
                 if vecs['att'] is not None:
-                    # Atracción (VERDE)
+                    # AtracciÃ³n (VERDE)
                     vx, vy = vecs['att']
                     self.canvas.create_line(mx, my, mx + vx * VIS_SCALE, my - vy * VIS_SCALE,
                                             fill="green", width=2, arrow=tk.LAST)
 
                 if vecs['rep'] is not None:
-                    # Repulsión (ROJO)
+                    # RepulsiÃ³n (ROJO)
                     vx, vy = vecs['rep']
-                    # Solo dibujamos si hay repulsión significativa
+                    # Solo dibujamos si hay repulsiÃ³n significativa
                     if abs(vx) > 0.01 or abs(vy) > 0.01:
                         self.canvas.create_line(mx, my, mx + vx * VIS_SCALE, my - vy * VIS_SCALE,
                                                 fill="red", width=2, arrow=tk.LAST)
@@ -1115,8 +1839,22 @@ class MultiRobotApp:
             disc = dict(self.discovered)
 
         # estado discovery arriba
-        net_txt = " | ".join([f"R{rid}:{disc[rid]['ip'] if disc[rid] else '---'}" for rid in ROBOT_IDS])
-        self.lbl_net.config(text=f"Discovery: {net_txt}")
+        now = time.time()
+        parts = []
+        for rid in ROBOT_IDS:
+            info = disc.get(rid)
+            if info is None:
+                parts.append(f"R{rid}:---")
+                continue
+            age = now - info.get("t", 0.0)
+            if age <= ROBOT_WARN_S:
+                tag = "OK"
+            elif age <= ROBOT_STALE_S:
+                tag = f"WARN {age:.0f}s"
+            else:
+                tag = f"STALE {age:.0f}s"
+            parts.append(f"R{rid}:{info['ip']} {tag}")
+        self.lbl_net.config(text=" | ".join(parts))
 
         if frame is not None:
             processed = self.process_frame(frame)
@@ -1141,6 +1879,7 @@ def main():
 
     def on_close():
         app.running = False
+        app.save_ui_config()
         app.stop_all()
         if app.cap:
             app.cap.release()
@@ -1154,3 +1893,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

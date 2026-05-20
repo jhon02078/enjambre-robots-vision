@@ -5,10 +5,8 @@
 // WIFI 
 // =======================
 
-//const char* WIFI_SSID = "LAB ROBOTICA";
-//const char* WIFI_PASS = "robotica2021";
-const char* WIFI_SSID = "CELERITY_FLIA_MENESES_COCINA";
-const char* WIFI_PASS = "GANONG65tension*";
+const char* WIFI_SSID = "LAB ROBOTICA";
+const char* WIFI_PASS = "robotica2021";
 
 // =======================
 // ROBOT ID (CAMBIA EN CADA ROBOT)
