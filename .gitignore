@@ -3,3 +3,23 @@ build/
 *.vpk
 *.elf
 *.bin
+*.map
+*.hex
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Resultados experimentales
+pc/identificacion_modelos/resultados/
+
+# Estado local/runtime
+pc/robots_cache.json
+pc/ui_config.json
+
+# Archivos temporales
+*.log
+*.tmp
+*.zip
