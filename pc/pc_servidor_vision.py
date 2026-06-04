@@ -43,6 +43,43 @@ COMMAND_RESEND_GAP_S = 0.003
 ROBOT_CMD_PORT = 44444  # todos usan este puerto (en el ESP32 tambiÃ©n)
 CMD_RATE_HZ = 12
 
+# Controladores identificados por robot.
+# Valores temporales: todos usan las constantes obtenidas para robot_1.
+# Cuando identifiques cada robot, cambia solo la entrada de su ID.
+#
+# Importante: estos PID fueron calculados desde modelos comando->velocidad.
+# No se activan por defecto en el navegador posicion->PWM porque ese lazo ya
+# tiene logica de orientacion, waypoints, saturaciones y evasion.
+USE_IDENTIFIED_ROBOT_PID = False
+IDENTIFIED_PID_GAINS = {
+    1: {
+        "lin_kp": 228.07679080338463,
+        "lin_ki": 37.371325439420886,
+        "lin_kd": 0.0,
+        "ang_kp": 12.993625382753669,
+        "ang_ki": 2.9970939026679195,
+        "ang_kd": 0.7356975837568529,
+    },
+    2: {
+        "lin_kp": 228.07679080338463,
+        "lin_ki": 37.371325439420886,
+        "lin_kd": 0.0,
+        "ang_kp": 12.993625382753669,
+        "ang_ki": 2.9970939026679195,
+        "ang_kd": 0.7356975837568529,
+    },
+    3: {
+        "lin_kp": 228.07679080338463,
+        "lin_ki": 37.371325439420886,
+        "lin_kd": 0.0,
+        "ang_kp": 12.993625382753669,
+        "ang_ki": 2.9970939026679195,
+        "ang_kd": 0.7356975837568529,
+    },
+}
+PID_LINEAR_I_LIMIT = 30.0
+PID_ANGULAR_I_LIMIT = 25.0
+
 # Mapa / trayectoria
 UI_CONFIG_FILE = Path(__file__).with_name("ui_config.json")
 WALLS_FILE = Path(__file__).with_name("paredes.json")
@@ -161,6 +198,9 @@ class MultiRobotApp:
 
         # Memoria para el control Derivativo (D)
         self.prev_angle_err = {rid: 0.0 for rid in ROBOT_IDS}
+        self.prev_dist_err = {rid: 0.0 for rid in ROBOT_IDS}
+        self.pid_lin_i = {rid: 0.0 for rid in ROBOT_IDS}
+        self.pid_ang_i = {rid: 0.0 for rid in ROBOT_IDS}
         self.k_ang_d_pct = tk.DoubleVar(value=cfg("k_ang_d_pct", 3.5))
 
         # EvitaciÃ³n
@@ -289,6 +329,8 @@ class MultiRobotApp:
         tk.Entry(top, textvariable=self.k_lin_pct_per_m, width=6).pack(side=tk.LEFT)
         tk.Label(top, text="Kang(%/rad):", bg="#ddd").pack(side=tk.LEFT)
         tk.Entry(top, textvariable=self.k_ang_pct_per_rad, width=6).pack(side=tk.LEFT)
+        if USE_IDENTIFIED_ROBOT_PID:
+            tk.Label(top, text="PID ident. por robot ON", bg="#ddd", fg="#006400").pack(side=tk.LEFT, padx=8)
         tk.Button(top, text="Rebuscar robots", command=self.force_robot_discovery).pack(side=tk.LEFT, padx=8)
 
         # Estado discovery
@@ -333,8 +375,27 @@ class MultiRobotApp:
                 self.targets[rid] = None
                 self.final_targets[rid] = None
                 self.paths[rid] = []
+                self._reset_robot_pid(rid)
         for rid in ROBOT_IDS:
             self.send_robot_cmd(rid, 0, 0)
+
+    def _reset_robot_pid(self, rid):
+        self.prev_angle_err[rid] = 0.0
+        self.prev_dist_err[rid] = 0.0
+        self.pid_lin_i[rid] = 0.0
+        self.pid_ang_i[rid] = 0.0
+
+    def _pid_gains_for_robot(self, rid):
+        if USE_IDENTIFIED_ROBOT_PID:
+            return IDENTIFIED_PID_GAINS.get(rid, IDENTIFIED_PID_GAINS[1])
+        return {
+            "lin_kp": float(self.k_lin_pct_per_m.get()),
+            "lin_ki": 0.0,
+            "lin_kd": 0.0,
+            "ang_kp": float(self.k_ang_pct_per_rad.get()),
+            "ang_ki": 0.0,
+            "ang_kd": float(self.k_ang_d_pct.get()),
+        }
 
     def on_map_left_click(self, event):
         if not self.wall_edit_mode.get():
@@ -364,6 +425,7 @@ class MultiRobotApp:
         tx, ty = self.map_to_world(event.x, event.y)
         if tx is None:
             return
+        self._reset_robot_pid(rid)
         self.set_planned_target(rid, tx, ty)
 
     def on_map_middle_click(self, event):
@@ -372,6 +434,7 @@ class MultiRobotApp:
             self.targets[rid] = None
             self.final_targets[rid] = None
             self.paths[rid] = []
+            self._reset_robot_pid(rid)
         self.send_robot_cmd(rid, 0, 0)
 
     def load_ui_config(self):
@@ -524,6 +587,7 @@ class MultiRobotApp:
                 self.targets[rid] = (tx, ty)
                 self.final_targets[rid] = (tx, ty)
                 self.paths[rid] = []
+                self._reset_robot_pid(rid)
             self.lbl_path.config(text=f"R{rid}: directo, sin pose")
             return
 
@@ -539,6 +603,7 @@ class MultiRobotApp:
             else:
                 self.paths[rid] = []
                 self.targets[rid] = goal
+            self._reset_robot_pid(rid)
 
         if path:
             self.lbl_path.config(text=f"R{rid}: ruta {len(path)} pts")
@@ -750,6 +815,7 @@ class MultiRobotApp:
                 # --- Estado base por visiÃ³n ---
                 if st is None:
                     self.send_robot_cmd(rid, 0, 0)
+                    self._reset_robot_pid(rid)
                     continue
 
                 # --- Reposo real (SIN objetivo) ---
@@ -757,7 +823,7 @@ class MultiRobotApp:
                     self.send_robot_cmd(rid, 0, 0)
                     self.nav_mode[rid] = "IDLE"
                     self.prev_goal[rid] = None
-                    self.prev_angle_err[rid] = 0.0
+                    self._reset_robot_pid(rid)
                     with self.lock:
                         self.paths[rid] = []
                         self.final_targets[rid] = None
@@ -766,7 +832,7 @@ class MultiRobotApp:
                 # Si venimos de reposo real (IDLE) y ahora hay objetivo -> primero orientar
                 if self.nav_mode.get(rid, "IDLE") == "IDLE":
                     self.nav_mode[rid] = "ORIENT"
-                    self.prev_angle_err[rid] = 0.0
+                    self._reset_robot_pid(rid)
 
                 # Guardar el objetivo actual (para distinguir reposo real vs cambio dinÃ¡mico)
                 self.prev_goal[rid] = goal
@@ -794,7 +860,7 @@ class MultiRobotApp:
                             self.final_targets[rid] = None
 
                     if next_goal is not None:
-                        self.prev_angle_err[rid] = 0.0
+                        self._reset_robot_pid(rid)
                         continue
 
                     self.send_robot_cmd(rid, 0, 0)
@@ -802,7 +868,7 @@ class MultiRobotApp:
                     # Reposo real
                     self.nav_mode[rid] = "IDLE"
                     self.prev_goal[rid] = None
-                    self.prev_angle_err[rid] = 0.0
+                    self._reset_robot_pid(rid)
                     continue
 
                 # --- 2. ATRACCIÃ“N ---
@@ -904,12 +970,12 @@ class MultiRobotApp:
                 IS_SAFE_ZONE = (norm_rep < 0.15)  # tu criterio actual
                 if self.avoid_on.get() and (not IS_SAFE_ZONE):
                     if mode != "AVOID":
-                        self.prev_angle_err[rid] = 0.0
+                        self._reset_robot_pid(rid)
                     mode = "AVOID"
                 else:
                     # Si estÃ¡bamos evitando y ya salimos, volvemos a RUN (NO a ORIENT)
                     if mode == "AVOID":
-                        self.prev_angle_err[rid] = 0.0
+                        self._reset_robot_pid(rid)
                         mode = "RUN"
 
                 # --- 5.2 Elegir heading segÃºn modo ---
@@ -920,18 +986,29 @@ class MultiRobotApp:
 
                 angle_err = wrap_pi(desired_heading - yaw)
 
-                # Leer Ganancias
-                klin = float(self.k_lin_pct_per_m.get())
-                kp_ang = float(self.k_ang_pct_per_rad.get())
-                kd_ang = float(self.k_ang_d_pct.get())
                 vmax = float(self.vmax_pct.get())
 
-                # Control PD Angular
                 prev_err = self.prev_angle_err.get(rid, 0.0)
-                d_err = angle_err - prev_err
-                self.prev_angle_err[rid] = angle_err
+                if USE_IDENTIFIED_ROBOT_PID:
+                    gains = self._pid_gains_for_robot(rid)
+                    d_err = wrap_pi(angle_err - prev_err) / max(dt, 1e-6)
+                    self.pid_ang_i[rid] = clamp(
+                        self.pid_ang_i[rid] + angle_err * dt,
+                        -PID_ANGULAR_I_LIMIT,
+                        PID_ANGULAR_I_LIMIT,
+                    )
+                    angular_raw = (
+                        gains["ang_kp"] * angle_err
+                        + gains["ang_ki"] * self.pid_ang_i[rid]
+                        + gains["ang_kd"] * d_err
+                    )
+                else:
+                    kp_ang = float(self.k_ang_pct_per_rad.get())
+                    kd_ang = float(self.k_ang_d_pct.get())
+                    d_err = angle_err - prev_err
+                    angular_raw = (kp_ang * angle_err) + (kd_ang * d_err * 10.0)
 
-                angular_raw = (kp_ang * angle_err) + (kd_ang * d_err * 10.0)
+                self.prev_angle_err[rid] = angle_err
                 angular_val = clamp(angular_raw, -vmax, vmax)
 
                 # === AJUSTE: velocidad de giro SOLO en ORIENT (reposo real) ===
@@ -968,7 +1045,7 @@ class MultiRobotApp:
 
                     if abs(angle_err) <= MARGIN_ORIENT:
                         mode = "RUN"
-                        self.prev_angle_err[rid] = 0.0
+                        self._reset_robot_pid(rid)
 
                 elif mode == "RUN":
                     # En RUN: aplica tu lÃ³gica normal en zona segura
@@ -1000,9 +1077,35 @@ class MultiRobotApp:
                     # Re-limitamos para no saturar
                     angular_val = clamp(angular_val, -vmax, vmax)
 
-                # Calculamos velocidad lineal final
-                raw_linear = klin * dist_factor * align_factor
-                linear_val = clamp(raw_linear, 0, vmax)
+                if not USE_IDENTIFIED_ROBOT_PID:
+                    raw_linear = float(self.k_lin_pct_per_m.get()) * dist_factor * align_factor
+                    linear_val = clamp(raw_linear, 0, vmax)
+                    self.pid_lin_i[rid] = 0.0
+                    self.prev_dist_err[rid] = 0.0
+                else:
+                    # PID lineal: error de distancia -> comando comun u_v.
+                    if mode == "ORIENT" or align_factor <= 0.0:
+                        self.pid_lin_i[rid] = 0.0
+                        self.prev_dist_err[rid] = 0.0
+                        linear_val = 0.0
+                    else:
+                        gains = self._pid_gains_for_robot(rid)
+                        dist_err_pid = dist_goal * align_factor
+                        prev_dist_err = self.prev_dist_err.get(rid, 0.0)
+                        d_dist = (dist_err_pid - prev_dist_err) / max(dt, 1e-6)
+                        self.prev_dist_err[rid] = dist_err_pid
+                        self.pid_lin_i[rid] = clamp(
+                            self.pid_lin_i[rid] + dist_err_pid * dt,
+                            -PID_LINEAR_I_LIMIT,
+                            PID_LINEAR_I_LIMIT,
+                        )
+
+                        raw_linear = (
+                            gains["lin_kp"] * dist_err_pid
+                            + gains["lin_ki"] * self.pid_lin_i[rid]
+                            + gains["lin_kd"] * d_dist
+                        )
+                        linear_val = clamp(raw_linear, 0, vmax)
 
                 # Mezclamos lineal y angular SIN usar "if error > spin_th"
                 left = linear_val - angular_val
