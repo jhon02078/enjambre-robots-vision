@@ -79,3 +79,29 @@ Archivos generados:
 ```powershell
 py -3.13 pc\identificacion_modelos\test_synthetic_identificacion.py
 ```
+
+## Visualizar resultados
+
+Abrir la interfaz con la ultima corrida del robot 1:
+
+```powershell
+py -3.13 pc\identificacion_modelos\ver_resultados.py --robot 1
+```
+
+Corrida especifica:
+
+```powershell
+py -3.13 pc\identificacion_modelos\ver_resultados.py --run pc\identificacion_modelos\resultados\robot_1\YYYYMMDD_HHMMSS
+```
+
+Solo imprimir resumen en consola:
+
+```powershell
+py -3.13 pc\identificacion_modelos\ver_resultados.py --robot 1 --no-show
+```
+
+Abrir PNG con el visor del sistema:
+
+```powershell
+py -3.13 pc\identificacion_modelos\ver_resultados.py --robot 1 --open-png
+```
