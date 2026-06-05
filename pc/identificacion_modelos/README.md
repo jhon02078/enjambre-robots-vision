@@ -2,6 +2,8 @@
 
 Herramienta Tkinter para identificar modelos dinamicos de los robots usando la camara, ArUco, homografia y comandos UDP `M L R`.
 
+Robots soportados por defecto: ArUco/ID `1`, `2`, `3` y `10`.
+
 ## Ejecutar
 
 Desde la raiz del proyecto:
@@ -22,7 +24,7 @@ El entorno recomendado debe tener:
 
 1. Conecta la camara MJPEG.
 2. Verifica que se dibuje la homografia con ArUco `4,5,6,7`.
-3. Verifica que el robot elegido tenga ArUco visible y discovery UDP.
+3. Verifica que el robot elegido tenga ArUco visible y discovery UDP. Para el cuarto robot usa ID `10`.
 4. Usa amplitud conservadora, por ejemplo `40-50%`.
 5. Corre primero `Barrido angular`, luego `Barrido lineal`, o usa `Lineal + angular`.
 
@@ -44,6 +46,14 @@ w = Gw(s) * u_w
 
 Por eso se miden dos canales: avance y giro. En los resultados aparece como `modelo_diferencial.json`, una matriz 2x2 diagonal para el robot completo.
 
+Cada canal se ajusta ahora con una familia de modelos de transferencia de la forma:
+
+```text
+G(s) = K * prod(1 + Tz_i s) / prod(1 + Tp_i s) * exp(-L s)
+```
+
+La herramienta prueba automaticamente modelos con varios polos y ceros, por defecto hasta 3 polos y 2 ceros, conserva el primer orden con retardo como referencia y guarda el candidato que mejor ajusta la respuesta en frecuencia medida. En `model.json` se incluyen la ecuacion, polos, ceros, constantes de tiempo, retardo, error del ajuste y una tabla de candidatos evaluados.
+
 ## Evitar que llegue al borde
 
 El barrido lineal necesita espacio porque el robot se traslada. Usa:
@@ -61,6 +71,8 @@ Cada corrida se guarda en:
 ```text
 pc/identificacion_modelos/resultados/robot_N/YYYYMMDD_HHMMSS/
 ```
+
+Para el cuarto robot las corridas quedan en `resultados/robot_10/`.
 
 Archivos generados:
 
@@ -86,6 +98,12 @@ Abrir la interfaz con la ultima corrida del robot 1:
 
 ```powershell
 py -3.13 pc\identificacion_modelos\ver_resultados.py --robot 1
+```
+
+Para ver el cuarto robot:
+
+```powershell
+py -3.13 pc\identificacion_modelos\ver_resultados.py --robot 10
 ```
 
 Corrida especifica:

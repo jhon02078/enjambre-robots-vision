@@ -9,9 +9,9 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 import numpy as np
 
 try:
-    from .analysis import first_order_delay_response, plot_results
+    from .analysis import model_frequency_response, plot_results
 except ImportError:
-    from analysis import first_order_delay_response, plot_results
+    from analysis import model_frequency_response, plot_results
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -80,6 +80,19 @@ def model_equation(mode, model):
     input_name = "u_v(s)" if mode == "lineal" else "u_w(s)"
     if not model:
         return f"{label}(s): sin modelo ajustado"
+
+    if model.get("type") == "zero_pole_plus_delay":
+        equation = model.get("equation")
+        if equation:
+            return f"{output}/{input_name} = {label}(s) = {equation}"
+        k = model.get("gain", 0.0)
+        delay = model.get("delay_s", 0.0)
+        zeros = model.get("zero_time_constants_s", [])
+        poles = model.get("pole_time_constants_s", [])
+        num = " * ".join([f"(1 + {z:.4g}s)" for z in zeros]) if zeros else "1"
+        den = " * ".join([f"(1 + {p:.4g}s)" for p in poles]) if poles else "1"
+        return f"{output}/{input_name} = {label}(s) = {k:.6g} * {num} / {den} * exp(-{delay:.4f}s)"
+
     k = model.get("gain", 0.0)
     tau = model.get("tau_s", 0.0)
     delay = model.get("delay_s", 0.0)
@@ -112,11 +125,38 @@ def build_summary_text(bundle):
         lines.append(model_equation(mode, model.get(mode)))
         m = model.get(mode)
         if m:
-            lines.append(
-                f"  K={m.get('gain', 0):.6g}, tau={m.get('tau_s', 0):.4f}s, "
-                f"delay={m.get('delay_s', 0):.4f}s, mse={m.get('fit_mse', 0):.4g}, "
-                f"metodo={m.get('fit_method', '---')}"
-            )
+            if m.get("type") == "zero_pole_plus_delay":
+                lines.append(
+                    f"  K={m.get('gain', 0):.6g}, polos={m.get('n_poles', 0)}, ceros={m.get('n_zeros', 0)}, "
+                    f"tau dominante={m.get('dominant_tau_s', m.get('tau_s', 0)):.4f}s, "
+                    f"delay={m.get('delay_s', 0):.4f}s, mse={m.get('fit_mse', 0):.4g}, "
+                    f"metodo={m.get('fit_method', '---')}"
+                )
+                lines.append(f"  constantes polos(s): {m.get('pole_time_constants_s', [])}")
+                lines.append(f"  constantes ceros(s): {m.get('zero_time_constants_s', [])}")
+                lines.append(f"  polos(rad/s): {m.get('poles_rad_s', [])}")
+                lines.append(f"  ceros(rad/s): {m.get('zeros_rad_s', [])}")
+                ref = m.get("first_order_reference")
+                if ref:
+                    lines.append(
+                        f"  referencia 1er orden: K={ref.get('gain', 0):.6g}, "
+                        f"tau={ref.get('tau_s', 0):.4f}s, delay={ref.get('delay_s', 0):.4f}s, "
+                        f"mse={ref.get('fit_mse', 0):.4g}"
+                    )
+            else:
+                lines.append(
+                    f"  K={m.get('gain', 0):.6g}, tau={m.get('tau_s', 0):.4f}s, "
+                    f"delay={m.get('delay_s', 0):.4f}s, mse={m.get('fit_mse', 0):.4g}, "
+                    f"metodo={m.get('fit_method', '---')}"
+                )
+            candidates = m.get("candidate_models", [])
+            if candidates:
+                lines.append("  candidatos evaluados:")
+                for cand in candidates[:6]:
+                    lines.append(
+                        f"    {cand.get('type')} p={cand.get('n_poles')} z={cand.get('n_zeros')} "
+                        f"mse={cand.get('fit_mse', 0):.4g}"
+                    )
         lines.append(f"  puntos Bode: {len(freq.get(mode, []))}")
         lines.append("")
 
@@ -211,7 +251,7 @@ class ResultViewerApp:
         top.pack(side=tk.TOP, fill=tk.X)
 
         ttk.Label(top, text="Robot:").pack(side=tk.LEFT)
-        robot_box = ttk.Combobox(top, textvariable=self.robot_var, values=[1, 2, 3], width=5, state="readonly")
+        robot_box = ttk.Combobox(top, textvariable=self.robot_var, values=[1, 2, 3, 10], width=5, state="readonly")
         robot_box.pack(side=tk.LEFT, padx=4)
         robot_box.bind("<<ComboboxSelected>>", lambda _e: self.refresh_runs(load_latest=True))
 
@@ -320,7 +360,7 @@ class ResultViewerApp:
 
         if model:
             dense = np.geomspace(max(min(freqs), 1e-4), max(freqs), 300)
-            fit = first_order_delay_response(dense, model["gain"], model["tau_s"], model["delay_s"])
+            fit = model_frequency_response(dense, model)
             ax_mag.semilogx(dense, 20.0 * np.log10(np.abs(fit) + 1e-12), "-", label="modelo")
             ax_phase.semilogx(dense, np.degrees(np.unwrap(np.angle(fit))), "-", label="modelo")
 

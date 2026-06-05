@@ -18,7 +18,7 @@ import numpy as np
 # CONFIG
 # ============================
 # Robots
-ROBOT_IDS = [1, 2, 3]
+ROBOT_IDS = [1, 2, 3, 10]
 
 # ID 4 = (0,0), ID 5 = (W,0), ID 6 = (W,H), ID 7 = (0,H)
 WORKSPACE_ID_TO_WORLD = {
@@ -52,13 +52,21 @@ CMD_RATE_HZ = 12
 # tiene logica de orientacion, waypoints, saturaciones y evasion.
 USE_IDENTIFIED_ROBOT_PID = False
 IDENTIFIED_PID_GAINS = {
+#    1: {               #PID del microsumo original
+#        "lin_kp": 228.07679080338463,
+#        "lin_ki": 37.371325439420886,
+#        "lin_kd": 0.0,
+#        "ang_kp": 12.993625382753669,
+#        "ang_ki": 2.9970939026679195,
+#        "ang_kd": 0.7356975837568529,
+#    },
     1: {
-        "lin_kp": 228.07679080338463,
-        "lin_ki": 37.371325439420886,
+        "lin_kp": 17.302353159834805,
+        "lin_ki": 0.33680413454241814,
         "lin_kd": 0.0,
-        "ang_kp": 12.993625382753669,
-        "ang_ki": 2.9970939026679195,
-        "ang_kd": 0.7356975837568529,
+        "ang_kp": 26.11614990024723,
+        "ang_ki": 5.038115456919972,
+        "ang_kd": 2.330788949100338,
     },
     2: {
         "lin_kp": 228.07679080338463,
@@ -69,12 +77,20 @@ IDENTIFIED_PID_GAINS = {
         "ang_kd": 0.7356975837568529,
     },
     3: {
-        "lin_kp": 228.07679080338463,
-        "lin_ki": 37.371325439420886,
+        "lin_kp": 250.0,
+        "lin_ki": 80.0,
         "lin_kd": 0.0,
-        "ang_kp": 12.993625382753669,
-        "ang_ki": 2.9970939026679195,
-        "ang_kd": 0.7356975837568529,
+        "ang_kp": 49.145412945779555,
+        "ang_ki": 13.745376052862957,
+        "ang_kd": 1.7484894130348738,
+    },
+    10: {
+        "lin_kp": 250.0,
+        "lin_ki": 45.0,
+        "lin_kd": 0.0,
+        "ang_kp": 34.6,
+        "ang_ki": 0.5,
+        "ang_kd": 6.0,
     },
 }
 PID_LINEAR_I_LIMIT = 30.0
@@ -784,7 +800,7 @@ class MultiRobotApp:
         return info, "STALE", age
 
     # =========================
-    # CONTROL THREAD (3 robots)
+    # CONTROL THREAD (robots definidos en ROBOT_IDS)
     # =========================
     def _control_loop(self):
         dt = 1.0 / CMD_RATE_HZ
@@ -1437,7 +1453,7 @@ class MultiRobotApp:
                     self.homography_t = now
 
             # ==================================================================
-            # 5. ROBOTS (IDS 1, 2, 3)
+            # 5. ROBOTS (IDS definidos en ROBOT_IDS)
             # ==================================================================
             with self.lock:
                 Huse = self.homography
@@ -1996,4 +2012,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

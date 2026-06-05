@@ -18,7 +18,7 @@ from PIL import Image, ImageTk
 try:
     from .analysis import (
         estimate_frequency_response,
-        fit_first_order_delay,
+        fit_transfer_model,
         combined_differential_model,
         pid_recommendations,
         plot_results,
@@ -28,7 +28,7 @@ try:
 except ImportError:
     from analysis import (
         estimate_frequency_response,
-        fit_first_order_delay,
+        fit_transfer_model,
         combined_differential_model,
         pid_recommendations,
         plot_results,
@@ -37,7 +37,7 @@ except ImportError:
     )
 
 
-ROBOT_IDS = [1, 2, 3]
+ROBOT_IDS = [1, 2, 3, 10]
 WORKSPACE_IDS = [4, 5, 6, 7]
 DISCOVERY_PORT = 37030
 DISCOVERY_QUERY = b"DISCOVER_ROBOTS"
@@ -683,7 +683,7 @@ class IdentificationApp:
             resp = estimate_frequency_response(self.samples, mode, settle_cycles)
             freq_response[mode] = resp
             if len(resp) >= 2:
-                models[mode] = fit_first_order_delay(resp)
+                models[mode] = fit_transfer_model(resp)
 
         write_json(out_dir / "frequency_response.json", freq_response)
         write_json(out_dir / "model.json", models)
