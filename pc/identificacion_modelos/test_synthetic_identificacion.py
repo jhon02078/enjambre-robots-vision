@@ -7,6 +7,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from analysis import (
+    estimate_frequency_response,
     fit_first_order_delay,
     fit_first_order_plus_delay,
     fit_transfer_model,
@@ -72,6 +73,50 @@ def main():
         raise AssertionError(f"El modelo rico no mejoro suficiente: simple={simple_err}, rico={rich_err}")
     if rich.get("type") != "zero_pole_plus_delay":
         raise AssertionError(f"Se esperaba modelo polo-cero, llego {rich.get('type')}")
+
+    sample_rows = []
+    amp = 40.0
+    gain_v = 0.006
+    freq = 0.7
+    dt = 1.0 / 37.0
+    for repeat in [1, 2]:
+        x = 0.0
+        t = 0.0
+        while t < 5.0:
+            jitter_t = t + (0.001 * math.sin(13.0 * t + repeat))
+            cmd = amp * math.sin(2.0 * math.pi * freq * jitter_t)
+            v = gain_v * cmd
+            x += v * dt
+            sample_rows.append({
+                "t": jitter_t,
+                "mode": "lineal",
+                "freq_hz": freq,
+                "repeat": repeat,
+                "segment_t": jitter_t,
+                "left_cmd": cmd,
+                "right_cmd": cmd,
+                "x_m": x,
+                "y_m": 0.0,
+                "yaw_rad": 0.0,
+                "yaw_unwrapped_rad": 0.0,
+                "v_m_s": v,
+                "w_rad_s": 0.0,
+            })
+            t += dt
+
+    estimated = estimate_frequency_response(
+        sample_rows,
+        "lineal",
+        settle_cycles=0.5,
+        sample_hz=40.0,
+        derivative_window_s=0.10,
+        min_quality=0.0,
+    )
+    if len(estimated) != 1:
+        raise AssertionError(f"Se esperaba un punto estimado, llegaron {len(estimated)}")
+    assert_close(estimated[0]["magnitude"], gain_v, 0.35)
+    if estimated[0]["n_repeats"] != 2:
+        raise AssertionError("No se promediaron las dos repeticiones.")
 
     print("OK synthetic identification")
 

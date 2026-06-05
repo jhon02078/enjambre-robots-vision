@@ -30,6 +30,26 @@ El entorno recomendado debe tener:
 
 La app hace auto-stop si pierde homografia, pierde el ArUco del robot o el robot se acerca demasiado al borde.
 
+## Parametros nuevos de identificacion
+
+- `Lineal Amp(%)`, `f min/max`, `N`: amplitud y frecuencias solo para avance.
+- `Angular Amp(%)`, `f min/max`, `N`: amplitud y frecuencias solo para giro.
+- `reps`: repeticiones por frecuencia. Usa `2` o `3` si quieres un Bode mas confiable.
+- `analisis Hz`: tasa usada para remuestrear cada segmento antes del calculo en frecuencia.
+- `vent.deriv(s)`: ventana de suavizado para derivar `x,y,yaw` y obtener `v,w`.
+- `calidad min`: rechazo de repeticiones con poca componente senoidal util.
+
+Valores recomendados iniciales:
+
+```text
+Lineal:  Amp 30-40%, f 0.20-1.20 Hz, N 10-14
+Angular: Amp 25-40%, f 0.20-2.00 Hz, N 12-18
+reps: 2
+analisis Hz: 40
+vent.deriv(s): 0.15-0.25
+calidad min: 0.05-0.15
+```
+
 ## Como se interpreta el modelo
 
 El robot diferencial se guarda como un solo modelo en coordenadas desacopladas:
@@ -52,7 +72,7 @@ Cada canal se ajusta ahora con una familia de modelos de transferencia de la for
 G(s) = K * prod(1 + Tz_i s) / prod(1 + Tp_i s) * exp(-L s)
 ```
 
-La herramienta prueba automaticamente modelos con varios polos y ceros, por defecto hasta 3 polos y 2 ceros, conserva el primer orden con retardo como referencia y guarda el candidato que mejor ajusta la respuesta en frecuencia medida. En `model.json` se incluyen la ecuacion, polos, ceros, constantes de tiempo, retardo, error del ajuste y una tabla de candidatos evaluados.
+La herramienta remuestrea cada repeticion a tiempo uniforme, suaviza/deriva la pose para calcular `v,w`, estima la respuesta en frecuencia por repeticion y promedia cada frecuencia con pesos de calidad. Luego prueba automaticamente modelos con varios polos y ceros, por defecto hasta 3 polos y 2 ceros, conserva el primer orden con retardo como referencia y guarda el candidato que mejor ajusta la respuesta en frecuencia medida. En `model.json` se incluyen la ecuacion, polos, ceros, constantes de tiempo, retardo, error del ajuste y una tabla de candidatos evaluados.
 
 ## Evitar que llegue al borde
 
@@ -78,6 +98,7 @@ Archivos generados:
 
 - `samples.csv`
 - `frequency_response.json`
+- `quality_metrics.json`
 - `model.json`
 - `modelo_diferencial.json`
 - `experiment_summary.json`

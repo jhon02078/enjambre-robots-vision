@@ -69,6 +69,7 @@ def load_result_bundle(run_dir):
         "model": load_json(run_dir / "model.json", {}),
         "diff_model": load_json(run_dir / "modelo_diferencial.json", {}),
         "pid": load_json(run_dir / "pid_params.json", {}),
+        "quality": load_json(run_dir / "quality_metrics.json", {}),
         "summary": load_json(run_dir / "experiment_summary.json", {}),
         "samples": load_samples(run_dir / "samples.csv"),
     }
@@ -113,6 +114,26 @@ def build_summary_text(bundle):
     lines = []
     lines.append(f"Corrida: {run_dir}")
     lines.append(f"Muestras: {summary.get('n_samples', len(samples))}")
+    cfg = summary.get("analysis_config", {})
+    if cfg:
+        lines.append("")
+        lines.append("Configuracion del experimento")
+        for key in [
+            "linear_amplitude_pct",
+            "linear_freq_min_hz",
+            "linear_freq_max_hz",
+            "linear_freq_points",
+            "angular_amplitude_pct",
+            "angular_freq_min_hz",
+            "angular_freq_max_hz",
+            "angular_freq_points",
+            "repeats_per_freq",
+            "analysis_sample_hz",
+            "derivative_window_s",
+            "min_quality",
+        ]:
+            if key in cfg:
+                lines.append(f"  {key}: {cfg[key]}")
     lines.append("")
     lines.append("Modelo diferencial del robot")
     lines.append("u_v = (left + right) / 2")
@@ -158,6 +179,24 @@ def build_summary_text(bundle):
                         f"mse={cand.get('fit_mse', 0):.4g}"
                     )
         lines.append(f"  puntos Bode: {len(freq.get(mode, []))}")
+        q_items = bundle.get("quality", {}).get(mode, [])
+        if q_items:
+            valid = [q for q in q_items if q.get("coherence_like_mean") is not None]
+            if valid:
+                coh = [float(q.get("coherence_like_mean", 0.0)) for q in valid]
+                snr = [float(q.get("snr_db_mean", 0.0)) for q in valid]
+                reps = [int(q.get("n_repeats", 0)) for q in valid]
+                lines.append(
+                    f"  calidad media: coherencia~{np.mean(coh):.3f}, "
+                    f"SNR~{np.mean(snr):.1f} dB, reps promedio={np.mean(reps):.1f}"
+                )
+                worst = sorted(valid, key=lambda q: float(q.get("coherence_like_mean", 0.0)))[:3]
+                lines.append("  puntos mas debiles:")
+                for item in worst:
+                    lines.append(
+                        f"    {item.get('freq_hz')} Hz: coh={item.get('coherence_like_mean')}, "
+                        f"SNR={item.get('snr_db_mean')} dB, rechazados={len(item.get('quality_rejected', []))}"
+                    )
         lines.append("")
 
     incomplete = summary.get("incomplete_frequencies", [])
@@ -189,6 +228,7 @@ def build_summary_text(bundle):
     for name in [
         "samples.csv",
         "frequency_response.json",
+        "quality_metrics.json",
         "model.json",
         "modelo_diferencial.json",
         "pid_params.json",
@@ -351,12 +391,25 @@ class ResultViewerApp:
 
         freqs = np.array([r["freq_hz"] for r in resp], dtype=float)
         gains = np.array([complex(r["gain_real"], r["gain_imag"]) for r in resp], dtype=complex)
+        mag_db = 20.0 * np.log10(np.abs(gains) + 1e-12)
+        phase_deg = np.degrees(np.unwrap(np.angle(gains)))
+        mag_std = np.array([float(r.get("magnitude_std", 0.0)) for r in resp], dtype=float)
+        phase_std = np.array([float(r.get("phase_std_deg", 0.0)) for r in resp], dtype=float)
+        mag_yerr = 20.0 * np.log10((np.abs(gains) + mag_std + 1e-12) / (np.abs(gains) + 1e-12))
 
         fig = Figure(figsize=(8, 6), dpi=100)
         ax_mag = fig.add_subplot(211)
         ax_phase = fig.add_subplot(212, sharex=ax_mag)
-        ax_mag.semilogx(freqs, 20.0 * np.log10(np.abs(gains) + 1e-12), "o", label="medido")
-        ax_phase.semilogx(freqs, np.degrees(np.unwrap(np.angle(gains))), "o", label="medido")
+        if np.any(mag_std > 0.0):
+            ax_mag.errorbar(freqs, mag_db, yerr=mag_yerr, fmt="o", capsize=3, label="medido")
+        else:
+            ax_mag.semilogx(freqs, mag_db, "o", label="medido")
+        if np.any(phase_std > 0.0):
+            ax_phase.errorbar(freqs, phase_deg, yerr=phase_std, fmt="o", capsize=3, label="medido")
+        else:
+            ax_phase.semilogx(freqs, phase_deg, "o", label="medido")
+        ax_mag.set_xscale("log")
+        ax_phase.set_xscale("log")
 
         if model:
             dense = np.geomspace(max(min(freqs), 1e-4), max(freqs), 300)

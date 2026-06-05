@@ -3,8 +3,8 @@
   "url_camera": "http://192.168.1.10:5000/video",
   "real_width": 1.25,
   "real_height": 1.25,
-  "robot_marker_height_m": 0.06,
-  "selected_robot": 1,
+  "robot_marker_height_m": 0.1,
+  "selected_robot": 3,
   "k_lin_pct_per_m": 70.0,
   "k_ang_pct_per_rad": 10.0,
   "vmax_pct": 40.0,
@@ -12,10 +12,10 @@
   "dist_tolerance": 0.02,
   "k_ang_d_pct": 3.5,
   "avoid_on": true,
-  "avoid_radius": 0.05,
+  "avoid_radius": 0.19,
   "k_rep": 0.7,
   "show_wall_field": true,
   "path_grid_res": 0.04,
   "path_clearance": 0.08,
-  "wall_field_range": 0.03
+  "wall_field_range": 0.02
 }

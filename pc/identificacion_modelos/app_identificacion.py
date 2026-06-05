@@ -107,10 +107,18 @@ class IdentificationApp:
         self.real_width = tk.DoubleVar(value=1.25)
         self.real_height = tk.DoubleVar(value=1.25)
         self.robot_id = tk.IntVar(value=1)
-        self.amplitude_pct = tk.DoubleVar(value=35.0)
-        self.freq_min_hz = tk.DoubleVar(value=0.20)
-        self.freq_max_hz = tk.DoubleVar(value=2.0)
-        self.freq_points = tk.IntVar(value=8)
+        self.linear_amplitude_pct = tk.DoubleVar(value=35.0)
+        self.angular_amplitude_pct = tk.DoubleVar(value=30.0)
+        self.linear_freq_min_hz = tk.DoubleVar(value=0.20)
+        self.linear_freq_max_hz = tk.DoubleVar(value=1.20)
+        self.linear_freq_points = tk.IntVar(value=12)
+        self.angular_freq_min_hz = tk.DoubleVar(value=0.20)
+        self.angular_freq_max_hz = tk.DoubleVar(value=2.0)
+        self.angular_freq_points = tk.IntVar(value=14)
+        self.repeats_per_freq = tk.IntVar(value=2)
+        self.analysis_sample_hz = tk.DoubleVar(value=40.0)
+        self.derivative_window_s = tk.DoubleVar(value=0.18)
+        self.min_quality = tk.DoubleVar(value=0.05)
         self.settle_cycles = tk.DoubleVar(value=1.0)
         self.measure_cycles = tk.DoubleVar(value=2.0)
         self.edge_margin_m = tk.DoubleVar(value=0.10)
@@ -149,13 +157,25 @@ class IdentificationApp:
         tk.Label(top, text="Robot:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(12, 2))
         ttk.Combobox(top, textvariable=self.robot_id, values=ROBOT_IDS, width=4, state="readonly").pack(side=tk.LEFT)
 
-        tk.Label(top, text="Amp(%):", bg="#e5e5e5").pack(side=tk.LEFT, padx=(12, 2))
-        tk.Entry(top, textvariable=self.amplitude_pct, width=6).pack(side=tk.LEFT)
-        tk.Label(top, text="f min/max:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(12, 2))
-        tk.Entry(top, textvariable=self.freq_min_hz, width=6).pack(side=tk.LEFT)
-        tk.Entry(top, textvariable=self.freq_max_hz, width=6).pack(side=tk.LEFT)
-        tk.Label(top, text="N:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(8, 2))
-        tk.Entry(top, textvariable=self.freq_points, width=4).pack(side=tk.LEFT)
+        row_freq = tk.Frame(self.root, bg="#e5e5e5", pady=4)
+        row_freq.pack(side=tk.TOP, fill=tk.X)
+        tk.Label(row_freq, text="Lineal Amp(%):", bg="#e5e5e5").pack(side=tk.LEFT)
+        tk.Entry(row_freq, textvariable=self.linear_amplitude_pct, width=6).pack(side=tk.LEFT)
+        tk.Label(row_freq, text="f min/max:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(8, 2))
+        tk.Entry(row_freq, textvariable=self.linear_freq_min_hz, width=6).pack(side=tk.LEFT)
+        tk.Entry(row_freq, textvariable=self.linear_freq_max_hz, width=6).pack(side=tk.LEFT)
+        tk.Label(row_freq, text="N:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(6, 2))
+        tk.Entry(row_freq, textvariable=self.linear_freq_points, width=4).pack(side=tk.LEFT)
+
+        tk.Label(row_freq, text=" | Angular Amp(%):", bg="#e5e5e5").pack(side=tk.LEFT, padx=(12, 2))
+        tk.Entry(row_freq, textvariable=self.angular_amplitude_pct, width=6).pack(side=tk.LEFT)
+        tk.Label(row_freq, text="f min/max:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(8, 2))
+        tk.Entry(row_freq, textvariable=self.angular_freq_min_hz, width=6).pack(side=tk.LEFT)
+        tk.Entry(row_freq, textvariable=self.angular_freq_max_hz, width=6).pack(side=tk.LEFT)
+        tk.Label(row_freq, text="N:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(6, 2))
+        tk.Entry(row_freq, textvariable=self.angular_freq_points, width=4).pack(side=tk.LEFT)
+        tk.Label(row_freq, text="reps:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(10, 2))
+        tk.Entry(row_freq, textvariable=self.repeats_per_freq, width=4).pack(side=tk.LEFT)
 
         row2 = tk.Frame(self.root, bg="#e5e5e5", pady=4)
         row2.pack(side=tk.TOP, fill=tk.X)
@@ -167,6 +187,12 @@ class IdentificationApp:
         tk.Entry(row2, textvariable=self.edge_margin_m, width=5).pack(side=tk.LEFT)
         tk.Label(row2, text="excursion max(m):", bg="#e5e5e5").pack(side=tk.LEFT, padx=(10, 2))
         tk.Entry(row2, textvariable=self.max_excursion_m, width=5).pack(side=tk.LEFT)
+        tk.Label(row2, text="analisis Hz:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(10, 2))
+        tk.Entry(row2, textvariable=self.analysis_sample_hz, width=5).pack(side=tk.LEFT)
+        tk.Label(row2, text="vent.deriv(s):", bg="#e5e5e5").pack(side=tk.LEFT, padx=(10, 2))
+        tk.Entry(row2, textvariable=self.derivative_window_s, width=5).pack(side=tk.LEFT)
+        tk.Label(row2, text="calidad min:", bg="#e5e5e5").pack(side=tk.LEFT, padx=(10, 2))
+        tk.Entry(row2, textvariable=self.min_quality, width=5).pack(side=tk.LEFT)
 
         tk.Button(row2, text="Barrido lineal", command=lambda: self.start_experiment(["lineal"])).pack(side=tk.LEFT, padx=8)
         tk.Button(row2, text="Barrido angular", command=lambda: self.start_experiment(["angular"])).pack(side=tk.LEFT, padx=4)
@@ -499,21 +525,31 @@ class IdentificationApp:
         self.stop_robot(int(self.robot_id.get()))
         self.status.set("STOP enviado. Experimento cancelado.")
 
-    def _frequency_list(self):
-        fmin = max(float(self.freq_min_hz.get()), 0.01)
-        fmax = max(float(self.freq_max_hz.get()), fmin)
-        n = max(int(self.freq_points.get()), 2)
+    def _mode_amplitude(self, mode):
+        if mode == "lineal":
+            return clamp(float(self.linear_amplitude_pct.get()), 5.0, 90.0)
+        return clamp(float(self.angular_amplitude_pct.get()), 5.0, 90.0)
+
+    def _frequency_list(self, mode):
+        if mode == "lineal":
+            fmin = max(float(self.linear_freq_min_hz.get()), 0.01)
+            fmax = max(float(self.linear_freq_max_hz.get()), fmin)
+            n = max(int(self.linear_freq_points.get()), 2)
+        else:
+            fmin = max(float(self.angular_freq_min_hz.get()), 0.01)
+            fmax = max(float(self.angular_freq_max_hz.get()), fmin)
+            n = max(int(self.angular_freq_points.get()), 2)
         return np.geomspace(fmin, fmax, n).tolist()
 
     def _mode_frequency_list(self, mode):
-        freqs = self._frequency_list()
+        freqs = self._frequency_list(mode)
         if mode != "lineal":
             return freqs
 
         # El barrido lineal a frecuencia muy baja desplaza demasiado al robot.
         # Se filtra con una cota conservadora de velocidad esperada para no
         # gastar la prueba llegando al borde.
-        amp = max(float(self.amplitude_pct.get()), 1.0)
+        amp = max(self._mode_amplitude(mode), 1.0)
         max_exc = max(float(self.max_excursion_m.get()), 0.05)
         assumed_gain_m_s_pct = 0.006
         min_safe_freq = (assumed_gain_m_s_pct * amp) / (2.0 * math.pi * max_exc)
@@ -526,7 +562,7 @@ class IdentificationApp:
             )
         return safe
 
-    def _append_stop_sample(self, samples, rid, mode, freq, segment_t):
+    def _append_stop_sample(self, samples, rid, mode, freq, repeat, segment_t):
         with self.lock:
             st = None if self.robot_state[rid] is None else dict(self.robot_state[rid])
         if st is None:
@@ -535,6 +571,7 @@ class IdentificationApp:
             "t": time.time(),
             "mode": mode,
             "freq_hz": float(freq),
+            "repeat": int(repeat),
             "segment_t": float(segment_t),
             "left_cmd": 0.0,
             "right_cmd": 0.0,
@@ -548,9 +585,11 @@ class IdentificationApp:
 
     def _run_experiment(self, modes):
         rid = int(self.robot_id.get())
-        amp = clamp(float(self.amplitude_pct.get()), 5.0, 90.0)
         settle = max(float(self.settle_cycles.get()), 0.0)
         measure = max(float(self.measure_cycles.get()), 0.5)
+        repeats = max(int(self.repeats_per_freq.get()), 1)
+        acquisition_sample_hz = max(float(self.analysis_sample_hz.get()), 5.0)
+        sample_period_s = 1.0 / acquisition_sample_hz
         all_samples = []
         incomplete = []
 
@@ -560,101 +599,125 @@ class IdentificationApp:
                 self.status.set(f"No se inicia: {reason}")
                 return
 
+            pause_experiment = False
             for mode in modes:
+                if pause_experiment:
+                    break
                 for freq in self._mode_frequency_list(mode):
-                    if self.abort_experiment.is_set():
-                        return
-                    prev_pose = None
-                    last_yaw_unwrapped = None
-                    segment_samples = []
-                    segment_ok = True
-                    total_s = (settle + measure) / freq
-                    t0 = time.time()
-                    next_cmd = 0.0
-                    origin = None
-                    self.status.set(f"R{rid} {mode}: {freq:.3f} Hz durante {total_s:.1f}s")
-
-                    while time.time() - t0 < total_s:
+                    if pause_experiment:
+                        break
+                    for repeat in range(1, repeats + 1):
                         if self.abort_experiment.is_set():
                             return
+                        amp = self._mode_amplitude(mode)
+                        prev_pose = None
+                        last_yaw_unwrapped = None
+                        segment_samples = []
+                        segment_ok = True
+                        total_s = (settle + measure) / freq
+                        t0 = time.time()
+                        next_cmd = 0.0
+                        next_sample = 0.0
+                        origin = None
+                        self.status.set(
+                            f"R{rid} {mode}: {freq:.3f} Hz rep {repeat}/{repeats} durante {total_s:.1f}s"
+                        )
 
-                        ok, reason = self._safe_to_run(rid)
-                        if not ok:
-                            self.status.set(f"Auto-stop en {mode} {freq:.3f} Hz: {reason}. Continuando si es seguro.")
-                            incomplete.append({"mode": mode, "freq_hz": float(freq), "reason": reason})
-                            segment_ok = False
-                            break
+                        while time.time() - t0 < total_s:
+                            if self.abort_experiment.is_set():
+                                return
 
-                        now = time.time()
-                        seg_t = now - t0
-                        u = amp * math.sin(2.0 * math.pi * freq * seg_t)
-                        if mode == "lineal":
-                            left, right = u, u
-                        else:
-                            left, right = -u, u
+                            ok, reason = self._safe_to_run(rid)
+                            if not ok:
+                                self.status.set(f"Auto-stop en {mode} {freq:.3f} Hz: {reason}. Continuando si es seguro.")
+                                incomplete.append({
+                                    "mode": mode,
+                                    "freq_hz": float(freq),
+                                    "repeat": int(repeat),
+                                    "reason": reason,
+                                })
+                                segment_ok = False
+                                break
 
-                        if now >= next_cmd:
-                            self.send_robot_cmd(rid, left, right)
-                            next_cmd = now + (1.0 / CMD_RATE_HZ)
-
-                        with self.lock:
-                            st = None if self.robot_state[rid] is None else dict(self.robot_state[rid])
-                        if st is not None:
-                            if origin is None:
-                                origin = (st["x"], st["y"])
+                            now = time.time()
+                            seg_t = now - t0
+                            u = amp * math.sin(2.0 * math.pi * freq * seg_t)
                             if mode == "lineal":
-                                excursion = math.hypot(st["x"] - origin[0], st["y"] - origin[1])
-                                if excursion > float(self.max_excursion_m.get()):
-                                    reason = f"excursion lineal {excursion:.2f} m supera limite"
-                                    self.status.set(f"Auto-stop en {mode} {freq:.3f} Hz: {reason}.")
-                                    incomplete.append({"mode": mode, "freq_hz": float(freq), "reason": reason})
-                                    segment_ok = False
-                                    break
-
-                            yaw = st["yaw"]
-                            if last_yaw_unwrapped is None:
-                                yaw_unwrapped = yaw
+                                left, right = u, u
                             else:
-                                yaw_unwrapped = last_yaw_unwrapped + wrap_pi(yaw - last_yaw_unwrapped)
-                            last_yaw_unwrapped = yaw_unwrapped
+                                left, right = -u, u
 
-                            v_m_s = 0.0
-                            w_rad_s = 0.0
-                            if prev_pose is not None:
-                                dt = max(now - prev_pose["t"], 1e-3)
-                                dx = st["x"] - prev_pose["x"]
-                                dy = st["y"] - prev_pose["y"]
-                                v_m_s = (dx * math.cos(st["yaw"]) + dy * math.sin(st["yaw"])) / dt
-                                w_rad_s = (yaw_unwrapped - prev_pose["yaw_unwrapped"]) / dt
-                            prev_pose = {"x": st["x"], "y": st["y"], "yaw_unwrapped": yaw_unwrapped, "t": now}
+                            if now >= next_cmd:
+                                self.send_robot_cmd(rid, left, right)
+                                next_cmd = now + (1.0 / CMD_RATE_HZ)
 
-                            segment_samples.append({
-                                "t": now,
-                                "mode": mode,
-                                "freq_hz": float(freq),
-                                "segment_t": float(seg_t),
-                                "left_cmd": float(left),
-                                "right_cmd": float(right),
-                                "x_m": float(st["x"]),
-                                "y_m": float(st["y"]),
-                                "yaw_rad": float(st["yaw"]),
-                                "yaw_unwrapped_rad": float(yaw_unwrapped),
-                                "v_m_s": float(v_m_s),
-                                "w_rad_s": float(w_rad_s),
-                            })
-                        time.sleep(0.01)
+                            if now >= next_sample:
+                                next_sample = now + sample_period_s
+                                with self.lock:
+                                    st = None if self.robot_state[rid] is None else dict(self.robot_state[rid])
+                                if st is not None:
+                                    if origin is None:
+                                        origin = (st["x"], st["y"])
+                                    if mode == "lineal":
+                                        excursion = math.hypot(st["x"] - origin[0], st["y"] - origin[1])
+                                        if excursion > float(self.max_excursion_m.get()):
+                                            reason = f"excursion lineal {excursion:.2f} m supera limite"
+                                            self.status.set(f"Auto-stop en {mode} {freq:.3f} Hz: {reason}.")
+                                            incomplete.append({
+                                                "mode": mode,
+                                                "freq_hz": float(freq),
+                                                "repeat": int(repeat),
+                                                "reason": reason,
+                                            })
+                                            segment_ok = False
+                                            break
 
-                    self.stop_robot(rid)
-                    if segment_ok:
-                        all_samples.extend(segment_samples)
-                    else:
-                        self._append_stop_sample(all_samples, rid, mode, freq, time.time() - t0)
+                                    yaw = st["yaw"]
+                                    if last_yaw_unwrapped is None:
+                                        yaw_unwrapped = yaw
+                                    else:
+                                        yaw_unwrapped = last_yaw_unwrapped + wrap_pi(yaw - last_yaw_unwrapped)
+                                    last_yaw_unwrapped = yaw_unwrapped
+
+                                    v_m_s = 0.0
+                                    w_rad_s = 0.0
+                                    if prev_pose is not None:
+                                        dt_pose = max(now - prev_pose["t"], 1e-3)
+                                        dx = st["x"] - prev_pose["x"]
+                                        dy = st["y"] - prev_pose["y"]
+                                        v_m_s = (dx * math.cos(st["yaw"]) + dy * math.sin(st["yaw"])) / dt_pose
+                                        w_rad_s = (yaw_unwrapped - prev_pose["yaw_unwrapped"]) / dt_pose
+                                    prev_pose = {"x": st["x"], "y": st["y"], "yaw_unwrapped": yaw_unwrapped, "t": now}
+
+                                    segment_samples.append({
+                                        "t": now,
+                                        "mode": mode,
+                                        "freq_hz": float(freq),
+                                        "repeat": int(repeat),
+                                        "segment_t": float(seg_t),
+                                        "left_cmd": float(left),
+                                        "right_cmd": float(right),
+                                        "x_m": float(st["x"]),
+                                        "y_m": float(st["y"]),
+                                        "yaw_rad": float(st["yaw"]),
+                                        "yaw_unwrapped_rad": float(yaw_unwrapped),
+                                        "v_m_s": float(v_m_s),
+                                        "w_rad_s": float(w_rad_s),
+                                    })
+                            time.sleep(0.002)
+
+                        self.stop_robot(rid)
+                        if segment_ok:
+                            all_samples.extend(segment_samples)
+                        else:
+                            self._append_stop_sample(all_samples, rid, mode, freq, repeat, time.time() - t0)
+                            time.sleep(0.8)
+                            ok, reason = self._safe_to_run(rid)
+                            if not ok:
+                                self.status.set(f"Experimento pausado: {reason}. Reubica el robot y vuelve a iniciar.")
+                                pause_experiment = True
+                                break
                         time.sleep(0.8)
-                        ok, reason = self._safe_to_run(rid)
-                        if not ok:
-                            self.status.set(f"Experimento pausado: {reason}. Reubica el robot y vuelve a iniciar.")
-                            break
-                    time.sleep(0.6)
 
             self.samples = all_samples
             self._save_results(rid, modes, settle, incomplete)
@@ -671,21 +734,77 @@ class IdentificationApp:
         self.last_output_dir = out_dir
 
         csv_path = out_dir / "samples.csv"
-        fieldnames = ["t", "mode", "freq_hz", "segment_t", "left_cmd", "right_cmd", "x_m", "y_m", "yaw_rad", "yaw_unwrapped_rad", "v_m_s", "w_rad_s"]
+        fieldnames = [
+            "t",
+            "mode",
+            "freq_hz",
+            "repeat",
+            "segment_t",
+            "left_cmd",
+            "right_cmd",
+            "x_m",
+            "y_m",
+            "yaw_rad",
+            "yaw_unwrapped_rad",
+            "v_m_s",
+            "w_rad_s",
+        ]
         with csv_path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(self.samples)
 
+        analysis_config = {
+            "linear_amplitude_pct": float(self.linear_amplitude_pct.get()),
+            "angular_amplitude_pct": float(self.angular_amplitude_pct.get()),
+            "linear_freq_min_hz": float(self.linear_freq_min_hz.get()),
+            "linear_freq_max_hz": float(self.linear_freq_max_hz.get()),
+            "linear_freq_points": int(self.linear_freq_points.get()),
+            "angular_freq_min_hz": float(self.angular_freq_min_hz.get()),
+            "angular_freq_max_hz": float(self.angular_freq_max_hz.get()),
+            "angular_freq_points": int(self.angular_freq_points.get()),
+            "repeats_per_freq": int(self.repeats_per_freq.get()),
+            "analysis_sample_hz": float(self.analysis_sample_hz.get()),
+            "derivative_window_s": float(self.derivative_window_s.get()),
+            "min_quality": float(self.min_quality.get()),
+            "settle_cycles": float(self.settle_cycles.get()),
+            "measure_cycles": float(self.measure_cycles.get()),
+            "edge_margin_m": float(self.edge_margin_m.get()),
+            "max_excursion_m": float(self.max_excursion_m.get()),
+        }
+
         freq_response = {}
         models = {}
+        quality_metrics = {}
         for mode in modes:
-            resp = estimate_frequency_response(self.samples, mode, settle_cycles)
+            resp = estimate_frequency_response(
+                self.samples,
+                mode,
+                settle_cycles,
+                sample_hz=analysis_config["analysis_sample_hz"],
+                derivative_window_s=analysis_config["derivative_window_s"],
+                min_quality=analysis_config["min_quality"],
+            )
             freq_response[mode] = resp
+            quality_metrics[mode] = [
+                {
+                    "freq_hz": item.get("freq_hz"),
+                    "n_repeats": item.get("n_repeats", 0),
+                    "coherence_like_mean": item.get("coherence_like_mean"),
+                    "coherence_like_min": item.get("coherence_like_min"),
+                    "snr_db_mean": item.get("snr_db_mean"),
+                    "magnitude_std": item.get("magnitude_std"),
+                    "phase_std_deg": item.get("phase_std_deg"),
+                    "fit_weight": item.get("fit_weight"),
+                    "quality_rejected": item.get("quality_rejected", []),
+                }
+                for item in resp
+            ]
             if len(resp) >= 2:
                 models[mode] = fit_transfer_model(resp)
 
         write_json(out_dir / "frequency_response.json", freq_response)
+        write_json(out_dir / "quality_metrics.json", quality_metrics)
         write_json(out_dir / "model.json", models)
         write_json(
             out_dir / "modelo_diferencial.json",
@@ -697,10 +816,13 @@ class IdentificationApp:
             "robot_id": rid,
             "modes_requested": modes,
             "n_samples": len(self.samples),
+            "analysis_config": analysis_config,
             "incomplete_frequencies": incomplete,
             "notes": [
                 "Modelo unico en coordenadas diferenciales: u_v=(L+R)/2, u_w=(R-L)/2.",
-                "Si faltan frecuencias lineales, fueron omitidas o detenidas para no llegar al borde.",
+                "Los puntos Bode se remuestrean a tiempo uniforme y se derivan con suavizado antes de ajustar.",
+                "Las repeticiones se promedian por frecuencia usando pesos de calidad.",
+                "Si faltan frecuencias lineales, fueron omitidas, rechazadas por calidad o detenidas para no llegar al borde.",
             ],
         })
         plot_msg = plot_results(out_dir, freq_response, models, self.samples)

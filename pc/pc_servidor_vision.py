@@ -61,20 +61,20 @@ IDENTIFIED_PID_GAINS = {
 #        "ang_kd": 0.7356975837568529,
 #    },
     1: {
-        "lin_kp": 17.302353159834805,
-        "lin_ki": 0.33680413454241814,
+        "lin_kp": 250.0,
+        "lin_ki": 80.0,
         "lin_kd": 0.0,
-        "ang_kp": 26.11614990024723,
-        "ang_ki": 5.038115456919972,
-        "ang_kd": 2.330788949100338,
+        "ang_kp": 49.145412945779555,
+        "ang_ki": 13.745376052862957,
+        "ang_kd": 1.7484894130348738,
     },
     2: {
-        "lin_kp": 228.07679080338463,
-        "lin_ki": 37.371325439420886,
+        "lin_kp": 250.0,
+        "lin_ki": 80.0,
         "lin_kd": 0.0,
-        "ang_kp": 12.993625382753669,
-        "ang_ki": 2.9970939026679195,
-        "ang_kd": 0.7356975837568529,
+        "ang_kp": 49.145412945779555,
+        "ang_ki": 13.745376052862957,
+        "ang_kd": 1.7484894130348738,
     },
     3: {
         "lin_kp": 250.0,
@@ -86,15 +86,32 @@ IDENTIFIED_PID_GAINS = {
     },
     10: {
         "lin_kp": 250.0,
-        "lin_ki": 45.0,
+        "lin_ki": 80.0,
         "lin_kd": 0.0,
-        "ang_kp": 34.6,
-        "ang_ki": 0.5,
-        "ang_kd": 6.0,
+        "ang_kp": 39.33766375557281,
+        "ang_ki": 12.639012969328368,
+        "ang_kd": 1.156347967943816,
     },
 }
 PID_LINEAR_I_LIMIT = 30.0
 PID_ANGULAR_I_LIMIT = 25.0
+
+# Navegacion hacia objetivos.
+# Si el objetivo queda detras o muy lateral, el robot debe girar en sitio antes
+# de volver a avanzar. La histeresis evita saltos RUN/ORIENT por ruido de yaw.
+ORIENT_ENTER_ANGLE_RAD = math.radians(35.0)
+ORIENT_EXIT_ANGLE_RAD = math.radians(8.0)
+RUN_FULL_SPEED_ANGLE_RAD = math.radians(12.0)
+RUN_MIN_ALIGN_FACTOR = 0.15
+ORIENT_TURN_GAIN = 2.2
+ORIENT_MIN_TURN_PCT = 26.0
+ORIENT_START_KICK_PCT = 34.0
+ORIENT_START_KICK_S = 0.35
+ORIENT_STUCK_BOOST_PCT = 34.0
+ORIENT_STUCK_TIME_S = 0.45
+ORIENT_STUCK_YAW_EPS_RAD = math.radians(1.0)
+MOTOR_MIN_PWM_PCT = 18
+RUN_MIN_LINEAR_PCT = 18
 
 # Mapa / trayectoria
 UI_CONFIG_FILE = Path(__file__).with_name("ui_config.json")
@@ -217,6 +234,9 @@ class MultiRobotApp:
         self.prev_dist_err = {rid: 0.0 for rid in ROBOT_IDS}
         self.pid_lin_i = {rid: 0.0 for rid in ROBOT_IDS}
         self.pid_ang_i = {rid: 0.0 for rid in ROBOT_IDS}
+        self.orient_since = {rid: None for rid in ROBOT_IDS}
+        self.orient_last_yaw = {rid: None for rid in ROBOT_IDS}
+        self.orient_last_motion_t = {rid: None for rid in ROBOT_IDS}
         self.k_ang_d_pct = tk.DoubleVar(value=cfg("k_ang_d_pct", 3.5))
 
         # EvitaciÃ³n
@@ -400,6 +420,9 @@ class MultiRobotApp:
         self.prev_dist_err[rid] = 0.0
         self.pid_lin_i[rid] = 0.0
         self.pid_ang_i[rid] = 0.0
+        self.orient_since[rid] = None
+        self.orient_last_yaw[rid] = None
+        self.orient_last_motion_t[rid] = None
 
     def _pid_gains_for_robot(self, rid):
         if USE_IDENTIFIED_ROBOT_PID:
@@ -1004,6 +1027,49 @@ class MultiRobotApp:
 
                 vmax = float(self.vmax_pct.get())
 
+                # 1. Throttle por distancia (igual que antes)
+                dist_factor = min(dist_goal / 0.15, 1.0)
+
+                # 3. LÃ³gica por estados
+                if mode == "ORIENT":
+                    if abs(angle_err) <= ORIENT_EXIT_ANGLE_RAD:
+                        mode = "RUN"
+                        self._reset_robot_pid(rid)
+                        angle_err = wrap_pi(desired_heading_res - yaw)
+                        align_factor = 1.0
+                    else:
+                        # En ORIENT: no avanza, solo gira hasta quedar bien alineado.
+                        align_factor = 0.0
+                        dist_factor = 0.0  # fuerza lineal=0
+
+                elif mode == "RUN":
+                    # En RUN: aplica tu lÃ³gica normal en zona segura
+                    if IS_SAFE_ZONE:
+                        abs_err = abs(angle_err)
+                        if abs_err <= RUN_FULL_SPEED_ANGLE_RAD:
+                            align_factor = 1.0
+                        elif abs_err >= ORIENT_ENTER_ANGLE_RAD:
+                            align_factor = RUN_MIN_ALIGN_FACTOR
+                        else:
+                            span = max(ORIENT_ENTER_ANGLE_RAD - RUN_FULL_SPEED_ANGLE_RAD, 1e-6)
+                            blend = (ORIENT_ENTER_ANGLE_RAD - abs_err) / span
+                            align_factor = clamp(
+                                RUN_MIN_ALIGN_FACTOR + (1.0 - RUN_MIN_ALIGN_FACTOR) * blend,
+                                RUN_MIN_ALIGN_FACTOR,
+                                1.0,
+                            )
+                    else:
+                        # Si por algÃºn motivo estamos RUN pero aparece repulsiÃ³n,
+                
+                        align_factor = max(0.0, math.cos(angle_err))
+
+                else:  # AVOID
+                    # EvasiÃ³n: mantenemos coseno 
+                    align_factor = max(0.0, math.cos(angle_err))
+
+                # Guardar modo final
+                self.nav_mode[rid] = mode
+
                 prev_err = self.prev_angle_err.get(rid, 0.0)
                 if USE_IDENTIFIED_ROBOT_PID:
                     gains = self._pid_gains_for_robot(rid)
@@ -1027,57 +1093,37 @@ class MultiRobotApp:
                 self.prev_angle_err[rid] = angle_err
                 angular_val = clamp(angular_raw, -vmax, vmax)
 
-                # === AJUSTE: velocidad de giro SOLO en ORIENT (reposo real) ===
-                # Aumenta o disminuye la rapidez con la que gira mientras estÃ¡ "alineÃ¡ndose" en reposo real.
-                mode_now = self.nav_mode.get(rid, "IDLE")
-
-                ORIENT_TURN_GAIN = 1.4  # subir para girar mÃ¡s rÃ¡pido (ej: 2.5)
-                ORIENT_MIN_TURN = 10.0  # mÃ­nimo de giro (%) para que no se quede "temblando" 
-
-                if mode_now == "ORIENT":
-                    # Escalar la orden angular
-                    angular_val *= ORIENT_TURN_GAIN
-
-                    # Asegurar un mÃ­nimo de giro para vencer fricciÃ³n / zona muerta
-                    if abs(angular_val) < ORIENT_MIN_TURN and abs(angle_err) > math.radians(2.0):
-                        angular_val = math.copysign(ORIENT_MIN_TURN, angular_val if angular_val != 0 else angle_err)
-
-                    # Re-limitar por seguridad
-                    angular_val = clamp(angular_val, -vmax, vmax)
-
-                # 1. Throttle por distancia (igual que antes)
-                dist_factor = min(dist_goal / 0.15, 1.0)
-
-                # 2. MÃ¡rgenes (en rad)
-                MARGIN_ORIENT = math.radians(15.0)  # Â±10Â°
-                MARGIN_RUN = math.radians(286.0)  # "286Â°"
-                MARGIN_RUN = min(MARGIN_RUN, math.pi)
-
-                # 3. LÃ³gica por estados
                 if mode == "ORIENT":
-                    # En ORIENT: no avanza, solo gira hasta quedar dentro de Â±10Â°
-                    align_factor = 0.0
-                    dist_factor = 0.0  # fuerza lineal=0
+                    now_orient = time.time()
+                    if self.orient_since.get(rid) is None:
+                        self.orient_since[rid] = now_orient
+                        self.orient_last_yaw[rid] = yaw
+                        self.orient_last_motion_t[rid] = now_orient
 
-                    if abs(angle_err) <= MARGIN_ORIENT:
-                        mode = "RUN"
-                        self._reset_robot_pid(rid)
+                    last_yaw = self.orient_last_yaw.get(rid)
+                    if last_yaw is None:
+                        self.orient_last_yaw[rid] = yaw
+                        self.orient_last_motion_t[rid] = now_orient
+                    elif abs(wrap_pi(yaw - last_yaw)) >= ORIENT_STUCK_YAW_EPS_RAD:
+                        self.orient_last_yaw[rid] = yaw
+                        self.orient_last_motion_t[rid] = now_orient
 
-                elif mode == "RUN":
-                    # En RUN: aplica tu lÃ³gica normal en zona segura
-                    if IS_SAFE_ZONE:
-                        align_factor = 1.0 if abs(angle_err) <= MARGIN_RUN else 0.0
-                    else:
-                        # Si por algÃºn motivo estamos RUN pero aparece repulsiÃ³n,
-                
-                        align_factor = max(0.0, math.cos(angle_err))
+                    orient_elapsed = now_orient - (self.orient_since.get(rid) or now_orient)
+                    stuck_elapsed = now_orient - (self.orient_last_motion_t.get(rid) or now_orient)
+                    min_turn = ORIENT_MIN_TURN_PCT
+                    if orient_elapsed <= ORIENT_START_KICK_S:
+                        min_turn = max(min_turn, ORIENT_START_KICK_PCT)
+                    elif stuck_elapsed >= ORIENT_STUCK_TIME_S:
+                        min_turn = max(min_turn, ORIENT_STUCK_BOOST_PCT)
 
-                else:  # AVOID
-                    # EvasiÃ³n: mantenemos coseno 
-                    align_factor = max(0.0, math.cos(angle_err))
-
-                # Guardar modo final
-                self.nav_mode[rid] = mode
+                    angular_val *= ORIENT_TURN_GAIN
+                    if abs(angular_val) < min_turn and abs(angle_err) > math.radians(2.0):
+                        angular_val = math.copysign(min_turn, angular_val if angular_val != 0 else angle_err)
+                    angular_val = clamp(angular_val, -max(vmax, min_turn), max(vmax, min_turn))
+                else:
+                    self.orient_since[rid] = None
+                    self.orient_last_yaw[rid] = None
+                    self.orient_last_motion_t[rid] = None
 
                 # Si align_factor es bajo (robot frenado o curveando cerrado),
                 if mode != "ORIENT" and align_factor < 0.5:
@@ -1123,6 +1169,14 @@ class MultiRobotApp:
                         )
                         linear_val = clamp(raw_linear, 0, vmax)
 
+                if (
+                    mode == "RUN"
+                    and align_factor >= 0.85
+                    and dist_goal > max(arrival_tol * 1.5, 0.03)
+                    and vmax > 0.0
+                ):
+                    linear_val = max(linear_val, min(vmax, RUN_MIN_LINEAR_PCT))
+
                 # Mezclamos lineal y angular SIN usar "if error > spin_th"
                 left = linear_val - angular_val
                 right = linear_val + angular_val
@@ -1131,9 +1185,8 @@ class MultiRobotApp:
                 left = int(clamp(left, -100, 100))
                 right = int(clamp(right, -100, 100))
 
-                MIN_PWM = 12
-                if abs(left) < MIN_PWM and abs(left) > 1: left = math.copysign(MIN_PWM, left)
-                if abs(right) < MIN_PWM and abs(right) > 1: right = math.copysign(MIN_PWM, right)
+                if abs(left) < MOTOR_MIN_PWM_PCT and abs(left) > 1: left = math.copysign(MOTOR_MIN_PWM_PCT, left)
+                if abs(right) < MOTOR_MIN_PWM_PCT and abs(right) > 1: right = math.copysign(MOTOR_MIN_PWM_PCT, right)
 
                 self.send_robot_cmd(rid, left, right)
 

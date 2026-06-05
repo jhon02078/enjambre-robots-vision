@@ -14,7 +14,7 @@ const char* WIFI_PASS = "GANONG65tension*";
 // =======================
 // ROBOT ID (CAMBIA EN CADA ROBOT)
 // =======================
-static const int ROBOT_ID = 1;   // 1, 2, 3
+static const int ROBOT_ID = 3;   // 1, 2, 3
 
 // =======================
 // PUERTOS UDP
@@ -46,8 +46,13 @@ static const uint32_t COMMAND_TIMEOUT_MS = 500;
 #define USE_START_GATE 0
 
 // Inversión motores
-#define MOTOR_A_INVERT 1
-#define MOTOR_B_INVERT 0     
+#define MOTOR_A_INVERT 0
+#define MOTOR_B_INVERT 0
+
+// Mapeo logico -> fisico.
+// Las pruebas muestran que el comando izquierdo mueve el motor derecho y el
+// comando derecho mueve el motor izquierdo, asi que se intercambian canales.
+#define SWAP_LEFT_RIGHT_MOTORS 1
 
 // =======================
 // PWM 
@@ -62,8 +67,8 @@ const int RAMP_DELAY = 2;
 // Calibracion PWM por motor.
 // Si el robot se va hacia un lado al enviar M 40 40, baja el factor del motor
 // mas fuerte o sube ligeramente el del mas debil. Mantener en 0.60..1.20.
-const float MOTOR_A_PWM_FACTOR = 1.00;  // Motor izquierdo / canal A
-const float MOTOR_B_PWM_FACTOR = 1.00;  // Motor derecho / canal B
+const float MOTOR_A_PWM_FACTOR = 1.00;  // Canal fisico A
+const float MOTOR_B_PWM_FACTOR = 1.00;  // 0.60Canal fisico B
 
 int targetA = 0, currentA = 0;
 int targetB = 0, currentB = 0;
@@ -125,14 +130,22 @@ void setMotorsPct(int leftPct, int rightPct){
 
   lastL = leftPct; lastR = rightPct;
 
-  if (MOTOR_A_INVERT) leftPct  = -leftPct;
-  if (MOTOR_B_INVERT) rightPct = -rightPct;
+  int motorAPct = leftPct;
+  int motorBPct = rightPct;
 
-  leftPct = applyPwmFactor(leftPct, MOTOR_A_PWM_FACTOR);
-  rightPct = applyPwmFactor(rightPct, MOTOR_B_PWM_FACTOR);
+#if SWAP_LEFT_RIGHT_MOTORS
+  motorAPct = rightPct;
+  motorBPct = leftPct;
+#endif
 
-  targetA = pct2duty(leftPct);
-  targetB = pct2duty(rightPct);
+  if (MOTOR_A_INVERT) motorAPct = -motorAPct;
+  if (MOTOR_B_INVERT) motorBPct = -motorBPct;
+
+  motorAPct = applyPwmFactor(motorAPct, MOTOR_A_PWM_FACTOR);
+  motorBPct = applyPwmFactor(motorBPct, MOTOR_B_PWM_FACTOR);
+
+  targetA = pct2duty(motorAPct);
+  targetB = pct2duty(motorBPct);
 }
 
 
@@ -224,8 +237,8 @@ void setup(){
   udpDisc.begin(DISCOVERY_PORT);
 
   Serial.printf("[UDP] CMD_PORT=%u  DISCOVERY_PORT=%u  ROBOT_ID=%d\n", CMD_PORT, DISCOVERY_PORT, ROBOT_ID);
-  Serial.printf("[PWM] factor A=%.2f  factor B=%.2f  freq=%luHz  res=%u bits\n",
-                MOTOR_A_PWM_FACTOR, MOTOR_B_PWM_FACTOR, PWM_FREQ, PWM_RES);
+  Serial.printf("[PWM] factor A=%.2f  factor B=%.2f  swapLR=%d  freq=%luHz  res=%u bits\n",
+                MOTOR_A_PWM_FACTOR, MOTOR_B_PWM_FACTOR, SWAP_LEFT_RIGHT_MOTORS, PWM_FREQ, PWM_RES);
 
   setMotorsPct(0,0);
   lastCmdMs = millis();

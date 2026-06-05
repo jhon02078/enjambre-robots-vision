@@ -5,8 +5,11 @@
 // WIFI 
 // =======================
 
-const char* WIFI_SSID = "LAB ROBOTICA";
-const char* WIFI_PASS = "robotica2021";
+//const char* WIFI_SSID = "LAB ROBOTICA";
+//const char* WIFI_PASS = "robotica2021";
+const char* WIFI_SSID = "CELERITY_FLIA_MENESES_COCINA";
+const char* WIFI_PASS = "GANONG65tension*";
+
 
 // =======================
 // ROBOT ID (CAMBIA EN CADA ROBOT)
@@ -44,7 +47,7 @@ static const uint32_t COMMAND_TIMEOUT_MS = 500;
 
 // Inversión motores
 #define MOTOR_A_INVERT 0     
-#define MOTOR_B_INVERT 1     
+#define MOTOR_B_INVERT 1    
 
 // =======================
 // PWM 
@@ -55,6 +58,12 @@ const int      DUTY_MAX = (1 << PWM_RES) - 1;
 
 const int RAMP_STEP  = 12;
 const int RAMP_DELAY = 2;
+
+// Calibracion PWM por motor.
+// Si el robot se va hacia un lado al enviar M 40 40, baja el factor del motor
+// mas fuerte o sube ligeramente el del mas debil. Mantener en 0.60..1.20.
+const float MOTOR_A_PWM_FACTOR = 1.00;  // Motor izquierdo / canal A
+const float MOTOR_B_PWM_FACTOR = 0.87;  // Motor derecho / canal B
 
 int targetA = 0, currentA = 0;
 int targetB = 0, currentB = 0;
@@ -80,6 +89,13 @@ int lastL = 0, lastR = 0;
 // ---------------- Utilidades ----------------
 inline int clampi(int v, int lo, int hi){ return (v < lo) ? lo : (v > hi) ? hi : v; }
 inline int pct2duty(int p){ return clampi((p * DUTY_MAX) / 100, -DUTY_MAX, DUTY_MAX); }
+
+int applyPwmFactor(int pct, float factor){
+  pct = clampi(pct, -100, 100);
+  factor = constrain(factor, 0.0f, 1.5f);
+  int scaled = (int)roundf((float)pct * factor);
+  return clampi(scaled, -100, 100);
+}
 
 void motorWriteSigned(int in1, int in2, int pwmPin, int dutySigned){
   dutySigned = clampi(dutySigned, -DUTY_MAX, DUTY_MAX);
@@ -111,6 +127,9 @@ void setMotorsPct(int leftPct, int rightPct){
 
   if (MOTOR_A_INVERT) leftPct  = -leftPct;
   if (MOTOR_B_INVERT) rightPct = -rightPct;
+
+  leftPct = applyPwmFactor(leftPct, MOTOR_A_PWM_FACTOR);
+  rightPct = applyPwmFactor(rightPct, MOTOR_B_PWM_FACTOR);
 
   targetA = pct2duty(leftPct);
   targetB = pct2duty(rightPct);
@@ -205,6 +224,8 @@ void setup(){
   udpDisc.begin(DISCOVERY_PORT);
 
   Serial.printf("[UDP] CMD_PORT=%u  DISCOVERY_PORT=%u  ROBOT_ID=%d\n", CMD_PORT, DISCOVERY_PORT, ROBOT_ID);
+  Serial.printf("[PWM] factor A=%.2f  factor B=%.2f  freq=%luHz  res=%u bits\n",
+                MOTOR_A_PWM_FACTOR, MOTOR_B_PWM_FACTOR, PWM_FREQ, PWM_RES);
 
   setMotorsPct(0,0);
   lastCmdMs = millis();

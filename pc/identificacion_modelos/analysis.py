@@ -13,6 +13,91 @@ def wrap_pi(angle):
     return angle
 
 
+def _as_float(row, key, default=0.0):
+    try:
+        return float(row.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _unwrap_series(values):
+    values = np.asarray(values, dtype=float)
+    if len(values) == 0:
+        return values
+    return np.unwrap(values)
+
+
+def _odd_window_samples(window_s, sample_hz, n):
+    samples = max(int(round(float(window_s) * float(sample_hz))), 3)
+    samples = min(samples, max(int(n), 3))
+    if samples % 2 == 0:
+        samples -= 1
+    return max(samples, 3)
+
+
+def _smooth_derivative(y, dt, window_s, sample_hz):
+    y = np.asarray(y, dtype=float)
+    if len(y) < 3:
+        return np.zeros_like(y)
+
+    window = _odd_window_samples(window_s, sample_hz, len(y))
+    if window >= 5:
+        try:
+            from scipy.signal import savgol_filter
+
+            poly = min(3, window - 2)
+            return savgol_filter(y, window_length=window, polyorder=poly, deriv=1, delta=dt, mode="interp")
+        except Exception:
+            pass
+
+    return np.gradient(y, dt)
+
+
+def _resample_segment(rows, mode, sample_hz=40.0, derivative_window_s=0.18):
+    rows = sorted(rows, key=lambda r: _as_float(r, "segment_t"))
+    if len(rows) < 6:
+        raise ValueError("No hay suficientes muestras para remuestrear el segmento.")
+
+    t = np.array([_as_float(r, "segment_t") for r in rows], dtype=float)
+    valid = np.isfinite(t)
+    rows = [r for r, ok in zip(rows, valid) if ok]
+    t = t[valid]
+    if len(t) < 6 or t[-1] <= t[0]:
+        raise ValueError("Segmento demasiado corto o sin tiempo valido.")
+
+    sample_hz = max(float(sample_hz), 5.0)
+    dt = 1.0 / sample_hz
+    t_uniform = np.arange(t[0], t[-1] + 0.5 * dt, dt)
+    if len(t_uniform) < 12:
+        raise ValueError("No hay suficientes muestras uniformes para estimar la frecuencia.")
+
+    left = np.interp(t_uniform, t, [_as_float(r, "left_cmd") for r in rows])
+    right = np.interp(t_uniform, t, [_as_float(r, "right_cmd") for r in rows])
+    x = np.interp(t_uniform, t, [_as_float(r, "x_m") for r in rows])
+    y = np.interp(t_uniform, t, [_as_float(r, "y_m") for r in rows])
+    yaw_raw = np.array([_as_float(r, "yaw_unwrapped_rad", _as_float(r, "yaw_rad")) for r in rows], dtype=float)
+    yaw = np.interp(t_uniform, t, _unwrap_series(yaw_raw))
+
+    dx = _smooth_derivative(x, dt, derivative_window_s, sample_hz)
+    dy = _smooth_derivative(y, dt, derivative_window_s, sample_hz)
+    w = _smooth_derivative(yaw, dt, derivative_window_s, sample_hz)
+    v = dx * np.cos(yaw) + dy * np.sin(yaw)
+
+    if mode == "lineal":
+        u = 0.5 * (left + right)
+        output = v
+    else:
+        u = 0.5 * (right - left)
+        output = w
+
+    return t_uniform, u, output, {
+        "sample_hz": float(sample_hz),
+        "dt_s": float(dt),
+        "n_uniform": int(len(t_uniform)),
+        "duration_s": float(t_uniform[-1] - t_uniform[0]),
+    }
+
+
 def estimate_single_frequency(t, u, y, freq_hz):
     t = np.asarray(t, dtype=float)
     u = np.asarray(u, dtype=float)
@@ -32,6 +117,18 @@ def estimate_single_frequency(t, u, y, freq_hz):
     u_complex = (2.0 / len(t)) * np.sum(u * basis)
     y_complex = (2.0 / len(t)) * np.sum(y * basis)
     gain = y_complex / (u_complex + 1e-12)
+
+    u_fit = np.real(u_complex * np.exp(1j * w * (t - t[0])))
+    y_fit = np.real(y_complex * np.exp(1j * w * (t - t[0])))
+    u_res = u - u_fit
+    y_res = y - y_fit
+    u_rms = float(np.sqrt(np.mean(u * u)))
+    y_rms = float(np.sqrt(np.mean(y * y)))
+    y_res_rms = float(np.sqrt(np.mean(y_res * y_res)))
+    signal_rms = float(np.sqrt(np.mean(y_fit * y_fit)))
+    snr_db = float(20.0 * np.log10((signal_rms + 1e-12) / (y_res_rms + 1e-12)))
+    coherence_like = float(np.clip(1.0 - (np.var(y_res) / (np.var(y) + 1e-12)), 0.0, 1.0))
+
     return {
         "freq_hz": float(freq_hz),
         "omega_rad_s": float(w),
@@ -41,36 +138,101 @@ def estimate_single_frequency(t, u, y, freq_hz):
         "phase_rad": float(np.angle(gain)),
         "phase_deg": float(np.degrees(np.angle(gain))),
         "n_samples": int(len(t)),
+        "input_rms": u_rms,
+        "output_rms": y_rms,
+        "signal_rms": signal_rms,
+        "residual_rms": y_res_rms,
+        "snr_db": snr_db,
+        "coherence_like": coherence_like,
+        "fit_weight": float(np.clip(coherence_like, 0.05, 1.0)),
     }
 
 
-def estimate_frequency_response(samples, mode, settle_cycles):
+def estimate_frequency_response(
+    samples,
+    mode,
+    settle_cycles,
+    sample_hz=40.0,
+    derivative_window_s=0.18,
+    min_quality=0.05,
+):
     groups = {}
     for row in samples:
         if row.get("mode") != mode:
             continue
         freq = float(row["freq_hz"])
-        groups.setdefault(freq, []).append(row)
+        repeat = int(float(row.get("repeat", 1)))
+        groups.setdefault((freq, repeat), []).append(row)
 
-    response = []
-    for freq, rows in sorted(groups.items()):
+    by_freq = {}
+    repeat_results = []
+    rejected = []
+    min_quality = float(np.clip(min_quality, 0.0, 0.95))
+
+    for (freq, repeat), rows in sorted(groups.items()):
         settle_s = float(settle_cycles) / freq
         usable = [r for r in rows if float(r["segment_t"]) >= settle_s]
         if len(usable) < 12:
             usable = rows
 
-        t = [float(r["segment_t"]) for r in usable]
-        if mode == "lineal":
-            u = [(float(r["left_cmd"]) + float(r["right_cmd"])) * 0.5 for r in usable]
-            y = [float(r["v_m_s"]) for r in usable]
-        else:
-            u = [(float(r["right_cmd"]) - float(r["left_cmd"])) * 0.5 for r in usable]
-            y = [float(r["w_rad_s"]) for r in usable]
-
         try:
-            response.append(estimate_single_frequency(t, u, y, freq))
-        except ValueError:
+            t, u, y, resample_info = _resample_segment(
+                usable,
+                mode,
+                sample_hz=sample_hz,
+                derivative_window_s=derivative_window_s,
+            )
+            item = estimate_single_frequency(t, u, y, freq)
+            item.update(resample_info)
+            item["repeat"] = int(repeat)
+            item["segment_samples_raw"] = int(len(usable))
+        except ValueError as exc:
+            rejected.append({"freq_hz": float(freq), "repeat": int(repeat), "reason": str(exc)})
             continue
+
+        repeat_results.append(dict(item))
+        if item["coherence_like"] < min_quality:
+            rejected.append({
+                "freq_hz": float(freq),
+                "repeat": int(repeat),
+                "reason": f"calidad {item['coherence_like']:.3f} < {min_quality:.3f}",
+            })
+            continue
+
+        by_freq.setdefault(freq, []).append(item)
+
+    response = []
+    for freq, items in sorted(by_freq.items()):
+        gains = np.array([complex(r["gain_real"], r["gain_imag"]) for r in items], dtype=complex)
+        weights = np.array([max(float(r.get("fit_weight", 0.05)), 0.05) for r in items], dtype=float)
+        gain = np.average(gains, weights=weights)
+        mag = np.abs(gains)
+        phase = _unwrap_phase(np.angle(gains))
+        coherence = np.array([float(r.get("coherence_like", 0.0)) for r in items], dtype=float)
+        snr = np.array([float(r.get("snr_db", 0.0)) for r in items], dtype=float)
+        fit_weight = float(np.clip(np.average(coherence, weights=weights) * math.sqrt(len(items)), 0.05, 2.0))
+        response.append({
+            "freq_hz": float(freq),
+            "omega_rad_s": float(2.0 * math.pi * freq),
+            "gain_real": float(np.real(gain)),
+            "gain_imag": float(np.imag(gain)),
+            "magnitude": float(abs(gain)),
+            "phase_rad": float(np.angle(gain)),
+            "phase_deg": float(np.degrees(np.angle(gain))),
+            "n_repeats": int(len(items)),
+            "n_samples": int(sum(r.get("n_samples", 0) for r in items)),
+            "magnitude_std": float(np.std(mag)) if len(items) > 1 else 0.0,
+            "phase_std_deg": float(np.degrees(np.std(phase))) if len(items) > 1 else 0.0,
+            "coherence_like_mean": float(np.mean(coherence)),
+            "coherence_like_min": float(np.min(coherence)),
+            "snr_db_mean": float(np.mean(snr)),
+            "fit_weight": fit_weight,
+            "repeat_results": items,
+        })
+
+    for item in response:
+        item["quality_rejected"] = [r for r in rejected if abs(r["freq_hz"] - item["freq_hz"]) < 1e-12]
+
     return response
 
 
@@ -120,20 +282,22 @@ def _unwrap_phase(phases):
     return np.unwrap(np.asarray(phases, dtype=float))
 
 
-def _fit_with_scipy(freq_hz, measured):
+def _fit_with_scipy(freq_hz, measured, weights=None):
     from scipy.optimize import least_squares
 
     mag0 = max(float(np.median(np.abs(measured[: max(1, min(3, len(measured)))]))), 1e-6)
     x0 = np.array([mag0, 0.35, 0.03], dtype=float)
 
     measured_phase = _unwrap_phase(np.angle(measured))
+    raw_weights = np.ones_like(freq_hz, dtype=float) if weights is None else np.asarray(weights, dtype=float)
+    residual_weights = np.sqrt(np.clip(raw_weights, 0.05, 5.0))
 
     def residual(x):
         gain, tau_s, delay_s = x
         pred = first_order_delay_response(freq_hz, gain, tau_s, delay_s)
         mag_res = np.log(np.abs(pred) + 1e-12) - np.log(np.abs(measured) + 1e-12)
         phase_res = _unwrap_phase(np.angle(pred)) - measured_phase
-        return np.r_[mag_res, 0.45 * phase_res]
+        return np.r_[residual_weights * mag_res, residual_weights * 0.45 * phase_res]
 
     result = least_squares(
         residual,
@@ -144,9 +308,11 @@ def _fit_with_scipy(freq_hz, measured):
     return result.x, float(np.mean(residual(result.x) ** 2)), "scipy"
 
 
-def _fit_with_numpy_grid(freq_hz, measured):
+def _fit_with_numpy_grid(freq_hz, measured, weights=None):
     taus = np.geomspace(0.02, 8.0, 80)
     delays = np.linspace(0.0, 1.2, 80)
+    raw_weights = np.ones_like(freq_hz, dtype=float) if weights is None else np.asarray(weights, dtype=float)
+    residual_weights = np.sqrt(np.clip(raw_weights, 0.05, 5.0))
     best = None
 
     for tau_s in taus:
@@ -157,7 +323,7 @@ def _fit_with_numpy_grid(freq_hz, measured):
             pred = gain * h
             mag_res = np.log(np.abs(pred) + 1e-12) - np.log(np.abs(measured) + 1e-12)
             phase_res = _unwrap_phase(np.angle(pred)) - _unwrap_phase(np.angle(measured))
-            err = float(np.mean(np.r_[mag_res, 0.45 * phase_res] ** 2))
+            err = float(np.mean(np.r_[residual_weights * mag_res, residual_weights * 0.45 * phase_res] ** 2))
             if best is None or err < best[0]:
                 best = (err, gain, tau_s, delay_s)
 
@@ -171,14 +337,16 @@ def fit_first_order_plus_delay(response):
 
     freq_hz = np.array([r["freq_hz"] for r in response], dtype=float)
     measured = np.array([complex(r["gain_real"], r["gain_imag"]) for r in response], dtype=complex)
+    weights = np.array([float(r.get("fit_weight", 1.0)) for r in response], dtype=float)
     order = np.argsort(freq_hz)
     freq_hz = freq_hz[order]
     measured = measured[order]
+    weights = weights[order]
 
     try:
-        params, mse, method = _fit_with_scipy(freq_hz, measured)
+        params, mse, method = _fit_with_scipy(freq_hz, measured, weights)
     except Exception:
-        params, mse, method = _fit_with_numpy_grid(freq_hz, measured)
+        params, mse, method = _fit_with_numpy_grid(freq_hz, measured, weights)
 
     gain, tau_s, delay_s = [float(v) for v in params]
     return {
@@ -198,21 +366,25 @@ def _normalize_response(response):
 
     freq_hz = np.array([r["freq_hz"] for r in response], dtype=float)
     measured = np.array([complex(r["gain_real"], r["gain_imag"]) for r in response], dtype=complex)
+    weights = np.array([float(r.get("fit_weight", 1.0)) for r in response], dtype=float)
     valid = np.isfinite(freq_hz) & np.isfinite(measured.real) & np.isfinite(measured.imag) & (freq_hz > 0.0)
     freq_hz = freq_hz[valid]
     measured = measured[valid]
+    weights = weights[valid]
     if len(freq_hz) < 2:
         raise ValueError("No hay suficientes puntos validos para ajustar el modelo.")
 
     order = np.argsort(freq_hz)
-    return freq_hz[order], measured[order]
+    return freq_hz[order], measured[order], weights[order]
 
 
-def _model_mse(freq_hz, measured, model):
+def _model_mse(freq_hz, measured, model, weights=None):
     pred = model_frequency_response(freq_hz, model)
     mag_res = np.log(np.abs(pred) + 1e-12) - np.log(np.abs(measured) + 1e-12)
     phase_res = _unwrap_phase(np.angle(pred)) - _unwrap_phase(np.angle(measured))
-    return float(np.mean(np.r_[mag_res, 0.45 * phase_res] ** 2))
+    raw_weights = np.ones_like(freq_hz, dtype=float) if weights is None else np.asarray(weights, dtype=float)
+    residual_weights = np.sqrt(np.clip(raw_weights, 0.05, 5.0))
+    return float(np.mean(np.r_[weights * mag_res, weights * 0.45 * phase_res] ** 2))
 
 
 def _pole_zero_metadata(gain, pole_taus, zero_taus, delay_s, fit_mse, fit_method, candidate_table):
@@ -248,10 +420,12 @@ def _pole_zero_metadata(gain, pole_taus, zero_taus, delay_s, fit_mse, fit_method
     }
 
 
-def _fit_zero_pole_with_scipy(freq_hz, measured, n_poles, n_zeros, base_model):
+def _fit_zero_pole_with_scipy(freq_hz, measured, weights, n_poles, n_zeros, base_model):
     from scipy.optimize import least_squares
 
     measured_phase = _unwrap_phase(np.angle(measured))
+    raw_weights = np.ones_like(freq_hz, dtype=float) if weights is None else np.asarray(weights, dtype=float)
+    residual_weights = np.sqrt(np.clip(raw_weights, 0.05, 5.0))
     mag0 = max(float(np.median(np.abs(measured[: max(1, min(3, len(measured)))]))), 1e-8)
     base_gain = abs(float(base_model.get("gain", mag0))) if base_model else mag0
     base_tau = max(float(base_model.get("tau_s", 0.35)) if base_model else 0.35, 0.02)
@@ -291,7 +465,7 @@ def _fit_zero_pole_with_scipy(freq_hz, measured, n_poles, n_zeros, base_model):
         # Regularizacion leve: evita cancelaciones polo-cero enormes cuando hay pocos puntos.
         reg_poles = 0.015 * (np.log(pole_taus / base_tau))
         reg_zeros = 0.01 * (zero_taus / max(base_tau, 1e-3))
-        return np.r_[mag_res, 0.45 * phase_res, reg_poles, reg_zeros]
+        return np.r_[residual_weights * mag_res, residual_weights * 0.45 * phase_res, reg_poles, reg_zeros]
 
     pole_guesses = [
         np.full(n_poles, base_tau, dtype=float),
@@ -333,7 +507,7 @@ def _fit_zero_pole_with_scipy(freq_hz, measured, n_poles, n_zeros, base_model):
                     "zero_time_constants_s": [float(v) for v in zero_taus],
                     "delay_s": delay_s,
                 }
-                mse = _model_mse(freq_hz, measured, candidate)
+                mse = _model_mse(freq_hz, measured, candidate, raw_weights)
                 if best is None or mse < best[0]:
                     best = (mse, gain, pole_taus, zero_taus, delay_s)
 
@@ -343,7 +517,7 @@ def _fit_zero_pole_with_scipy(freq_hz, measured, n_poles, n_zeros, base_model):
 
 
 def fit_transfer_model(response, max_poles=3, max_zeros=2):
-    freq_hz, measured = _normalize_response(response)
+    freq_hz, measured, weights = _normalize_response(response)
     first_order = fit_first_order_plus_delay(response)
     first_order["candidate_models"] = [{
         "type": first_order["type"],
@@ -382,7 +556,7 @@ def fit_transfer_model(response, max_poles=3, max_zeros=2):
                 continue
             try:
                 mse, gain, pole_taus, zero_taus, delay_s = _fit_zero_pole_with_scipy(
-                    freq_hz, measured, n_poles, n_zeros, first_order
+                    freq_hz, measured, weights, n_poles, n_zeros, first_order
                 )
             except Exception:
                 continue
@@ -516,10 +690,23 @@ def plot_results(out_dir, frequency_response, models, samples):
         freqs = np.array([r["freq_hz"] for r in resp], dtype=float)
         gains = np.array([complex(r["gain_real"], r["gain_imag"]) for r in resp], dtype=complex)
         model = models.get(mode)
+        mag_db = 20.0 * np.log10(np.abs(gains) + 1e-12)
+        phase_deg = np.degrees(_unwrap_phase(np.angle(gains)))
+        mag_std = np.array([float(r.get("magnitude_std", 0.0)) for r in resp], dtype=float)
+        phase_std = np.array([float(r.get("phase_std_deg", 0.0)) for r in resp], dtype=float)
+        mag_yerr = 20.0 * np.log10((np.abs(gains) + mag_std + 1e-12) / (np.abs(gains) + 1e-12))
 
         fig, axes = plt.subplots(2, 1, figsize=(7, 6), sharex=True)
-        axes[0].semilogx(freqs, 20.0 * np.log10(np.abs(gains) + 1e-12), "o", label="medido")
-        axes[1].semilogx(freqs, np.degrees(_unwrap_phase(np.angle(gains))), "o", label="medido")
+        if np.any(mag_std > 0.0):
+            axes[0].errorbar(freqs, mag_db, yerr=mag_yerr, fmt="o", capsize=3, label="medido")
+        else:
+            axes[0].semilogx(freqs, mag_db, "o", label="medido")
+        if np.any(phase_std > 0.0):
+            axes[1].errorbar(freqs, phase_deg, yerr=phase_std, fmt="o", capsize=3, label="medido")
+        else:
+            axes[1].semilogx(freqs, phase_deg, "o", label="medido")
+        axes[0].set_xscale("log")
+        axes[1].set_xscale("log")
         if model:
             dense = np.geomspace(max(min(freqs), 1e-4), max(freqs), 200)
             fit = model_frequency_response(dense, model)
