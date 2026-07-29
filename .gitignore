@@ -1,25 +1,105 @@
+# ============================================================
+# Secretos y configuracion privada
+# ============================================================
+.env
+.env.*
+!.env.example
+!.env.template
+
+**/secrets.h
+**/secrets.hpp
+**/credentials.h
+**/credentials.hpp
+**/arduino_secrets.h
+**/wifi_secrets.h
+**/wifi_credentials.h
+**/wifi_config.h
+**/private_config.h
+**/secrets.json
+**/credentials.json
+**/config.local.*
+*.local.json
+
+# Claves, certificados y almacenes privados
+*.pem
+*.key
+*.p12
+*.pfx
+*.ppk
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# ============================================================
+# Estado local y datos generados por la aplicacion
+# ============================================================
+pc/robots_cache.json
+pc/ui_config.json
+pc/identificacion_modelos/resultados/
+
+# El mapa de paredes SI se versiona:
+# pc/paredes.json
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 build/
-.vscode/
+dist/
+*.egg-info/
+
+# ============================================================
+# ESP32, Arduino y PlatformIO
+# ============================================================
+.pio/
+.pioenvs/
+.piolibdeps/
+.platformio/
+
 *.vpk
 *.elf
 *.bin
 *.map
 *.hex
+*.eep
+*.partitions.bin
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
+# ============================================================
+# Editores y sistemas operativos
+# ============================================================
+.vscode/
+.idea/
+.vs/
+*.code-workspace
 
-# Resultados experimentales
-pc/identificacion_modelos/resultados/
+.DS_Store
+Thumbs.db
+Desktop.ini
 
-# Estado local/runtime
-pc/robots_cache.json
-pc/ui_config.json
-
-# Archivos temporales
+# ============================================================
+# Temporales, respaldos y paquetes
+# ============================================================
 *.log
 *.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+~$*
 *.zip

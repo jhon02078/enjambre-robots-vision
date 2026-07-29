@@ -1,393 +1,337 @@
-# Enjambre de Robots con Visión por Computadora (Hybrid Edge-Server Visual Servoing)
-
-> **Copyright (c) 2026 Jhon Meneses. Todos los derechos reservados.**
-> 
-> Este repositorio contiene código propietario asociado a un proyecto de investigación académica. **No se otorga ninguna licencia** para el uso, copia, modificación, distribución, compilación o ingeniería inversa de este software, ni en su totalidad ni en parte. Queda estrictamente prohibido su uso para fines académicos, comerciales o personales por terceros sin autorización explícita y por escrito del autor. Este repositorio sirve como registro de autoría (Prior Art).
-
-## Descripción del Proyecto
-
-Sistema distribuido para el control, monitoreo y coordinación de múltiples robots móviles. La arquitectura del sistema divide el procesamiento de visión y la actuación para optimizar los recursos, operando de la siguiente manera:
-
-- **PC (Servidor):** Actúa como servidor central de visión y control del enjambre.
-- **Raspberry Pi (Edge):** Nodo de cámara encargado de la captura y transmisión del entorno (Stream MJPEG).
-- **ESP32 (Actuación):** Firmware embebido en cada robot móvil para la recepción de comandos y actuación.
-- **Localización:** Detección de marcadores ArUco mediante visión por computadora para la estimación de pose en el espacio de trabajo.
-
-## Estructura del Repositorio
-
-- `pc/vision_server/`: Aplicación principal de visión y algoritmos de control.
-- `raspberry/camera_stream/`: Servidor de transmisión de video de la cámara.
-- `esp32/`: Firmware de cada robot (control de motores y comunicación).
-- `docs/`: Diagramas de arquitectura, esquemas electrónicos, fotos y documentación.
-
-## Estado actual
-
-🚧 **En desarrollo activo.** Proyecto de investigación en curso. 
-
-## Autores
-
-**Jhon Meneses y Jean Carlos Meneses**
-
----
-
-## Demo del sistema
-
-
-### Evidencia visual
-- Detección de marcadores ArUco en tiempo real
-- Estimación de pose planar `(x, y, yaw)`
-- Navegación multi-robot en workspace compartido
-- Evitación de colisiones mediante campos potenciales
-- Comunicación distribuida entre PC, Raspberry Pi y robots ESP32
-
-
-![Frame con detección ArUco](docs/media/fotos/captura_interfaz_1.jpg)
-![Funcionamiento del enjambre con campos potenciales](docs/media/gifs/demo_funcionamiento.gif)
-
----
-
-## Objetivo
-
-Desarrollar una plataforma experimental de robótica móvil cooperativa basada en visión por computadora, capaz de:
-
-* localizar múltiples robots en un entorno compartido,
-* estimar su pose en coordenadas métricas,
-* asignar y seguir objetivos de navegación,
-* evitar colisiones entre robots y con las paredes del workspace,
-* y coordinar todo el sistema mediante una arquitectura distribuida de bajo costo.
-
----
-
-## Arquitectura del sistema
-
-La arquitectura del sistema se organiza en tres bloques principales:
-
-### 1. Raspberry Pi (captura y streaming)
-
-La Raspberry Pi actúa como nodo de adquisición de video. Captura el entorno desde una vista cenital y publica el flujo en la red local mediante **streaming MJPEG**.
-
-### 2. PC (visión, control y supervisión)
-
-La PC recibe el stream de video, detecta marcadores ArUco, estima la pose de cada robot, calcula la homografía del workspace, corrige errores geométricos y ejecuta el algoritmo de navegación y evitación de colisiones. Además, incluye una interfaz gráfica para monitoreo y ajuste.
-
-### 3. Robots móviles con ESP32
-
-Cada robot móvil incorpora un ESP32 encargado de recibir comandos por UDP, controlar el driver de motores y ejecutar mecanismos de seguridad como timeout y rampa PWM.
-
----
-
-## Características principales
-
-* Control centralizado de múltiples robots móviles
-* Detección de marcadores ArUco usando OpenCV
-* Homografía para convertir coordenadas de imagen a coordenadas métricas
-* Estabilización del workspace mediante histéresis y filtrado temporal
-* Corrección geométrica por paralaje
-* Navegación multi-robot con asignación de objetivos
-* Evitación de colisiones mediante campos potenciales
-* Comunicación UDP para descubrimiento y control de robots
-* Interfaz gráfica para supervisión en tiempo real
-* Firmware embebido basado en ESP32 para actuación diferencial
-* Integración de hardware propio, PCB personalizada y piezas impresas en 3D
-
----
-
-## Flujo general de operación
-
-1. La Raspberry Pi captura el video desde la cámara cenital.
-2. El stream MJPEG se transmite por red local a la PC.
-3. La PC detecta marcadores ArUco de referencia y de robots.
-4. Se calcula la homografía del workspace para convertir puntos de píxeles a metros.
-5. Se estima la pose planar de cada robot: posición `(x, y)` y orientación `yaw`.
-6. Se calculan los vectores de atracción y repulsión para navegación y evitación.
-7. La PC envía comandos diferenciales por UDP a cada robot.
-8. Cada ESP32 aplica PWM a los motores mediante el driver TB6612FNG.
-9. La realimentación visual cierra el lazo de control.
-
----
-
-## Identificadores del sistema
-
-### Robots
-
-* **ID 1:** Robot 1
-* **ID 2:** Robot 2
-* **ID 3:** Robot 3
-
-### Workspace
-
-* **ID 4:** esquina inferior izquierda
-* **ID 5:** esquina inferior derecha
-* **ID 6:** esquina superior derecha
-* **ID 7:** esquina superior izquierda
-
-Estos marcadores permiten definir el sistema de referencia del entorno y estimar la pose de cada robot dentro del área de trabajo.
-
----
-
-## Comunicación
-
-### Streaming de video
-
-* **Protocolo:** HTTP / MJPEG
-* **Endpoint:** `/video`
-* **Puerto:** `5000`
-
-### Descubrimiento de robots
-
-* **Protocolo:** UDP Broadcast
-* **Puerto:** `37030`
-* **Consulta enviada por la PC:** `DISCOVER_ROBOTS`
-* **Respuesta esperada del robot:** `ROBOT_HERE ID=<id> CMDPORT=44444`
-
-### Comandos de movimiento
-
-* **Protocolo:** UDP
-* **Puerto:** `44444`
-* **Formato de comando:** `M L R`
-
-Donde:
-
-* `L` = velocidad de la rueda izquierda en porcentaje `[-100, 100]`
-* `R` = velocidad de la rueda derecha en porcentaje `[-100, 100]`
-
----
-
-## Algoritmo de control
-
-La navegación implementada combina:
-
-### Seguimiento de objetivo
-
-Cada robot recibe un objetivo en el workspace y orienta su movimiento hacia él.
-
-### Máquina de estados
-
-El sistema contempla estados de operación por robot, tales como:
-
-* reposo,
-* orientación inicial,
-* avance normal,
-* evasión.
-
-### Evitación de colisiones
-
-Se utiliza una estrategia reactiva basada en **campos potenciales**:
-
-* un término atractivo hacia la meta,
-* términos repulsivos por proximidad de otros robots,
-* y repulsión respecto a las paredes del workspace.
-
-### Control diferencial
-
-Las acciones calculadas se convierten en comandos izquierda/derecha que son enviados al robot como velocidades diferenciales.
-
----
-
-## Interfaz gráfica
-
-La aplicación de PC incluye una GUI para supervisión y control del sistema.
-
-### Funcionalidades principales
-
-* Visualización del frame procesado
-* Dibujo del polígono del workspace
-* Mapa 2D con posición de robots
-* Selección de robot activo
-* Asignación de objetivos por interacción
-* Visualización de vectores:
-
-  * atracción
-  * repulsión
-  * resultante
-* Ajuste de parámetros en tiempo real:
-
-  * dimensiones del workspace
-  * radio de evitación
-  * ganancias de control
-  * altura del marcador para corrección de paralaje
-
----
-
-## Hardware utilizado
-
-### Unidad de captura
-
-* Raspberry Pi
-* Cámara cenital compatible con Picamera2
-
-### Estación base
-
-* PC o laptop para visión, control y supervisión
-
-### Robots móviles
-
-* ESP32 DevKitC
-* Driver de motores TB6612FNG
-* Motores DC
-* Batería
-* PCB personalizada
-* Estructura mecánica impresa en 3D
-* Marcadores ArUco en cada robot
-
-### Elementos de referencia
-
-* Marcadores ArUco en las esquinas del workspace
-
----
-
-## Software utilizado
-
-### En la PC
-
-* Python 3
-* OpenCV
-* NumPy
-* Tkinter
-* Pillow
-* sockets UDP
-
-### En la Raspberry Pi
-
-* Python 3
-* Flask
-* Picamera2
-* libcamera
-
-### En los robots
-
-* Arduino framework para ESP32
-* WiFi / WiFiUDP
-* PWM mediante LEDC
-
----
+# Enjambre de robots con visión cenital
+
+Plataforma experimental para localizar y controlar varios robots móviles desde
+una cámara cenital. Una Raspberry Pi publica video MJPEG, el computador detecta
+marcadores ArUco, transforma las posiciones a coordenadas métricas y envía
+comandos UDP a cuatro robots con ESP32.
+
+El repositorio también incluye:
+
+- navegación hacia objetivos seleccionados en un mapa 2D;
+- control independiente para los robots ArUco `1`, `2`, `3` y `10`;
+- paredes editables, campos de seguridad y planificación de trayectorias;
+- filtrado de posición y orientación;
+- descubrimiento y reconexión automática de robots;
+- una coreografía multirrobot desde la interfaz principal;
+- identificación experimental de modelos lineales y angulares;
+- ajuste de funciones de transferencia y recomendación de controladores PID;
+- firmware, modelos CAD, archivos de PCB y material multimedia.
+
+> **Aviso legal:** este repositorio es de consulta académica. No se concede
+> permiso para copiar, modificar, redistribuir o comercializar el código, los
+> diseños o el material incluido sin autorización expresa del autor.
+
+## Arquitectura
+
+![Arquitectura del sistema](docs/diagramas/Arquitectura%20del%20Sistema.png)
+
+El flujo principal es:
+
+1. La cámara de la Raspberry Pi publica `http://<IP_RASPBERRY>:5000/video`.
+2. El PC detecta los ArUco del área y calcula una homografía píxel-metro.
+3. Los ArUco de los robots producen una pose filtrada `{x, y, yaw}`.
+4. La interfaz calcula objetivos, trayectorias y acciones de control.
+5. El PC envía `M <izquierda> <derecha>` por UDP a cada ESP32.
+6. Los ESP32 anuncian periódicamente su identidad para mantener actualizada la
+   tabla de conexiones.
+
+### Identificadores ArUco
+
+El proyecto usa el diccionario OpenCV `DICT_4X4_50`.
+
+| ID | Uso |
+|---:|---|
+| `1` | Robot 1 |
+| `2` | Robot 2 |
+| `3` | Robot 3 |
+| `10` | Robot 4 |
+| `4` | Esquina inferior izquierda del área |
+| `5` | Esquina inferior derecha del área |
+| `6` | Esquina superior derecha del área |
+| `7` | Esquina superior izquierda del área |
+
+La posición física de los marcadores `4-7` importa: cambiar su orden invierte o
+deforma el sistema de coordenadas.
+
+### Red y protocolo
+
+Todos los equipos deben estar en la misma red local.
+
+| Función | Transporte | Puerto o ruta |
+|---|---|---|
+| Video de la Raspberry | HTTP/MJPEG | TCP `5000`, ruta `/video` |
+| Descubrimiento de robots | UDP broadcast | `37030` |
+| Comandos de motores | UDP | `44444` |
+
+Mensajes principales:
+
+```text
+PC -> broadcast: DISCOVER_ROBOTS
+ESP32 -> PC:      ROBOT_HERE ID=<id> CMDPORT=44444
+PC -> robot:      M <left_pct> <right_pct>
+PC -> robot:      STOP
+```
+
+Los porcentajes de rueda se limitan al intervalo `[-100, 100]`. El firmware
+detiene los motores si deja de recibir comandos válidos durante el tiempo de
+seguridad configurado.
+
+## Estructura del repositorio
+
+| Ruta | Contenido |
+|---|---|
+| [`pc/`](pc/) | Servidor de visión, control, diagnóstico e identificación |
+| [`pc/pc_servidor_vision.py`](pc/pc_servidor_vision.py) | Aplicación principal Tkinter |
+| [`pc/debug_robot.py`](pc/debug_robot.py) | Diagnóstico manual de motores por UDP |
+| [`pc/identificacion_modelos/`](pc/identificacion_modelos/) | Barridos, ajuste de modelos, PID y visor de resultados |
+| [`raspberry/`](raspberry/) | Servidor MJPEG con Picamera2 |
+| [`esp32/`](esp32/) | Firmware de control para los cuatro robots |
+| [`hardware/`](hardware/) | Modelos CAD y diseño de PCB |
+| [`docs/`](docs/) | Diagramas, informe, imágenes, GIF y videos |
+
+Cada componente tiene una guía específica:
+
+- [Guía del software de PC](pc/README.md)
+- [Guía de identificación de modelos](pc/identificacion_modelos/README.md)
+- [Guía de la Raspberry y cámara](raspberry/README.md)
+- [Guía del firmware ESP32](esp32/README.md)
+- [Guía de hardware](hardware/README.md)
+- [Índice de documentación y multimedia](docs/README.md)
 
 ## Requisitos
 
-### PC
+### Computador
 
-* Python 3.10 o superior
-* OpenCV
-* NumPy
-* Pillow
-* Tkinter
+- Python 3.10 o superior;
+- Windows o Linux con soporte para Tkinter;
+- OpenCV con módulo `aruco`;
+- NumPy, Pillow, SciPy y Matplotlib;
+- acceso de red a la Raspberry y a los ESP32.
 
 ### Raspberry Pi
 
-* Python 3
-* Flask
-* Picamera2
-* libcamera
+- Raspberry Pi OS con el stack `libcamera`;
+- cámara compatible con Picamera2;
+- Python 3, Flask, Picamera2 y `python3-libcamera`;
+- conexión estable por Wi-Fi o Ethernet.
 
 ### Robots
 
-* ESP32 programado con el firmware correspondiente
-* Driver TB6612FNG
-* Red Wi-Fi local disponible
+- ESP32;
+- driver TB6612FNG o cableado equivalente al firmware;
+- dos motores DC y una fuente capaz de entregar la corriente de arranque;
+- un marcador ArUco visible desde la cámara;
+- firmware con un ID único y credenciales de red propias.
 
----
+## Puesta en marcha
 
-## Instalación
+### 1. Preparar Python en el PC
 
-### 1. Clonar el repositorio
+Desde la raíz del repositorio:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r pc\requirements.txt
+```
+
+En Linux:
 
 ```bash
-git clone https://github.com/jhon02078/enjambre-robots-vision.git
-cd enjambre-robots-vision
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r pc/requirements.txt
 ```
 
-### 2. Instalar dependencias en la PC
+Si Tkinter no está disponible en Debian o Ubuntu:
 
 ```bash
-pip install opencv-python numpy pillow
+sudo apt install python3-tk
 ```
 
-### 3. Instalar dependencias en la Raspberry Pi
+### 2. Preparar y arrancar la Raspberry
+
+Siga la [guía de la cámara](raspberry/README.md), compruebe primero la cámara
+con `rpicam-hello` y después ejecute:
 
 ```bash
-pip install flask
+python3 raspberry_camara.py
 ```
 
-> `picamera2` normalmente se instala desde los paquetes recomendados del sistema en Raspberry Pi OS.
+Abra `http://<IP_RASPBERRY>:5000/video` en un navegador. No continúe hasta que
+el video sea estable.
 
----
+### 3. Cargar el firmware
 
-## Ejecución rápida
+Use los sketches actuales de [`esp32/Riotronic/`](esp32/Riotronic/) y asigne:
 
-### 1. Raspberry Pi
+| Robot físico | Firmware | ArUco |
+|---|---|---:|
+| Robot 1 | `ESP32_comandar_robot_1.ino` | `1` |
+| Robot 2 | `ESP32_comandar_robot_2.ino` | `2` |
+| Robot 3 | `ESP32_comandar_robot_3.ino` | `3` |
+| Robot 4 | `ESP32_comandar_robot_4.ino` | `10` |
 
-Ejecutar el servidor de cámara:
+Antes de flashear, cambie las credenciales Wi-Fi y verifique el mapeo de ruedas.
+La [guía ESP32](esp32/README.md) contiene el procedimiento de calibración.
 
-```bash
-python raspberry/camera_stream/raspberry_camara.py
+### 4. Montar el área
+
+1. Fije la cámara y evite cambiar su inclinación durante una sesión.
+2. Coloque los ArUco `4`, `5`, `6` y `7` en las esquinas indicadas.
+3. Mida el ancho y alto útiles del área en metros.
+4. Fije el marcador de cada robot centrado y con una orientación conocida.
+5. Evite reflejos, desenfoque, recortes y oclusiones de los marcadores.
+
+### 5. Abrir el servidor de visión
+
+```powershell
+python pc\pc_servidor_vision.py
 ```
 
-Esto levantará el stream MJPEG en:
+En la barra superior:
 
-```text
-http://<IP_RPI>:5000/video
+1. Escriba la URL MJPEG.
+2. Configure `W(m)` y `H(m)` con las medidas físicas.
+3. Pulse **Conectar**.
+4. Espere a que el mapa muestre la homografía y los robots.
+5. Active **CONTROL ON** únicamente cuando la pose sea estable.
+
+Use **PARAR** ante cualquier comportamiento inesperado.
+
+## Uso de la interfaz principal
+
+### Objetivos y navegación
+
+- **Clic derecho en el mapa:** asigna un objetivo al robot activo.
+- **Clic central:** elimina el objetivo del robot activo.
+- **Robot activo:** selecciona qué robot recibe el siguiente objetivo.
+- **Evitar choques:** activa la separación entre robots y obstáculos.
+
+El controlador trabaja con estados de orientación, avance y evasión. Si el
+objetivo está detrás del robot, primero mantiene un giro en el sitio y después
+habilita el avance cuando el error angular entra en el rango configurado.
+
+### Paredes
+
+1. Active **Editar paredes**.
+2. Dibuje segmentos con el botón izquierdo sobre el mapa.
+3. Use **Deshacer pared** para retirar el último segmento.
+4. Pulse **Guardar paredes** para persistirlas.
+5. Active **Campo paredes** para mostrar el límite discontinuo del campo.
+
+Las paredes se guardan en [`pc/paredes.json`](pc/paredes.json). Su campo de
+seguridad se usa tanto en la visualización como en la planificación y evasión.
+
+### Coreografía
+
+El botón **Coreografía** inicia una secuencia para los robots visibles. La
+aplicación asigna formaciones y transiciones dentro del área útil. La secuencia
+se cancela con el mismo botón o con **PARAR**.
+
+Antes de usarla:
+
+- verifique que todos los robots estén localizados;
+- retire obstáculos no representados en el mapa;
+- deje margen en los bordes;
+- pruebe primero con velocidades moderadas;
+- mantenga acceso inmediato al botón de parada.
+
+### Persistencia
+
+La interfaz guarda automáticamente sus ajustes en `pc/ui_config.json`. Las
+direcciones descubiertas se conservan en `pc/robots_cache.json`, y las paredes
+en `pc/paredes.json`.
+
+Los dos primeros archivos son estado local de ejecución y normalmente no deben
+versionarse. No edite estos JSON mientras la aplicación está abierta.
+
+## Identificación y PID
+
+La herramienta de identificación usa la misma cámara y el mismo protocolo que
+la aplicación principal, pero mueve un solo robot durante barridos controlados.
+
+```powershell
+python pc\identificacion_modelos\app_identificacion.py
 ```
 
-### 2. PC
+Puede estimar:
 
-Ejecutar la aplicación principal de visión y control:
+- modelo lineal: comando común de ruedas a velocidad longitudinal;
+- modelo angular: comando diferencial a velocidad de giro;
+- respuesta en frecuencia medida;
+- función de transferencia con varios polos y ceros;
+- métricas de ajuste y calidad;
+- PID lineal y angular recomendado.
 
-```bash
-python pc/vision_server/pc_servidor_vision.py
+Los resultados se guardan por robot en
+`pc/identificacion_modelos/resultados/robot_<id>/`. Consulte la
+[guía experimental completa](pc/identificacion_modelos/README.md) antes de
+iniciar un barrido.
+
+Para explorar resultados existentes:
+
+```powershell
+python pc\identificacion_modelos\ver_resultados.py
 ```
 
-Luego:
+## Diagnóstico
 
-* configurar la URL del stream,
-* verificar que se detecten los ArUco,
-* activar el control,
-* y asignar objetivos a los robots.
+| Síntoma | Revisión recomendada |
+|---|---|
+| No abre el video | Probar `/video` en el navegador, revisar IP, puerto y firewall |
+| La homografía aparece y desaparece | Mejorar luz, enfoque y tamaño de ArUco; fijar cámara y esquinas |
+| Un robot no aparece en el mapa | Confirmar su ID, visibilidad, homografía y dimensiones `W/H` |
+| El robot aparece fuera del mapa | Revisar orden de ArUco `4-7` y orientación del marcador del robot |
+| No se descubre un ESP32 | Confirmar misma subred y permitir UDP `37030/44444` |
+| Adelante funciona, pero los giros están invertidos | Calibrar intercambio e inversión de motores en el firmware |
+| El robot oscila en reposo | Mejorar detección, filtrado, iluminación y fijación del ArUco |
+| No arranca en el piso | Revisar batería, corriente del driver, fricción y PWM mínimo antes de subir ganancias |
+| La identificación se pausa | Reubicar el robot, recuperar homografía o aumentar el margen útil de forma segura |
+| El modelo ajustado no representa los datos | Repetir barridos, evitar saturación y revisar métricas de coherencia/calidad |
 
-### 3. ESP32
+Para probar motores sin activar navegación:
 
-Cargar el firmware en cada robot ajustando el identificador correspondiente:
-
-```cpp
-static const int ROBOT_ID = 1;   // cambiar para cada robot
+```powershell
+python pc\debug_robot.py
 ```
 
+Realice esa prueba inicialmente con las ruedas elevadas.
 
-## Resultados
+## Seguridad
 
-El sistema fue validado en diferentes escenarios experimentales, incluyendo:
+- Disponga de un interruptor físico de alimentación.
+- No deje una prueba o coreografía sin supervisión.
+- Eleve las ruedas en la primera prueba de cada firmware.
+- No aumente el PWM para compensar una batería descargada o un atasco mecánico.
+- Verifique la corriente admisible del driver y de los motores.
+- Use `PARAR` antes de modificar parámetros críticos.
+- No publique credenciales Wi-Fi incluidas en sketches locales.
 
-* navegación de un robot hacia una meta,
-* coordinación simultánea de múltiples robots,
-* cruce de trayectorias,
-* perturbaciones por vibración y oclusión parcial.
+## Verificación del software
 
-### Resultados observados
+Comprobación sintáctica básica:
 
-* localización estable en tiempo real,
-* navegación efectiva hacia objetivos,
-* activación reactiva de la evasión,
-* reducción de colisiones,
-* buena separación entre adquisición, procesamiento y actuación.
-
-
----
-
-## Colaboradores
-
-* **Jhon Meneses**
-* **JeanC3029**
-
----
-
-## Cita y uso académico
-
-Este repositorio **no es de libre uso**.
-Si necesitas referenciar este trabajo en un contexto académico, solicita autorización expresa al autor.
-
----
-
-## Nota final
-
-Este repositorio documenta tanto la parte de software como la implementación física de un sistema multi-robot experimental basado en visión artificial, con fines de investigación, validación académica y registro de autoría.
-
+```powershell
+python -m py_compile pc\pc_servidor_vision.py
+python -m py_compile pc\debug_robot.py
+python -m py_compile pc\identificacion_modelos\app_identificacion.py
+python -m py_compile pc\identificacion_modelos\ver_resultados.py
 ```
+
+Prueba sintética del ajuste:
+
+```powershell
+python pc\identificacion_modelos\test_synthetic_identificacion.py
+```
+
+Estas pruebas no reemplazan la validación física del sentido de motores, la
+parada de seguridad y la calidad de la localización.
+
+## Autores
+
+Proyecto desarrollado por **Jhon Meneses**, **Jean Carlos Meneses** y **Holger Sanmartin**.
+
+© 2026. Todos los derechos reservados.

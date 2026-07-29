@@ -254,6 +254,10 @@ class MultiRobotApp:
         self.targets = {rid: None for rid in ROBOT_IDS}
         self.final_targets = {rid: None for rid in ROBOT_IDS}
         self.paths = {rid: [] for rid in ROBOT_IDS}
+        self.choreo_running = False
+        self.choreo_stop = threading.Event()
+        self.choreo_thread = None
+        self.choreo_button_text = tk.StringVar(value="Coreografia")
 
         # ---------- Paredes / rutas ----------
         self.walls = self.load_walls()
@@ -341,6 +345,13 @@ class MultiRobotApp:
         tk.Checkbutton(top, text="CONTROL ON", variable=self.control_active, bg="#ddd",
                        font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=10)
         tk.Button(top, text="PARAR", command=self.stop_all, bg="red", fg="white").pack(side=tk.LEFT, padx=4)
+        tk.Button(
+            top,
+            textvariable=self.choreo_button_text,
+            command=self.toggle_choreography,
+            bg="#673AB7",
+            fg="white",
+        ).pack(side=tk.LEFT, padx=4)
 
         tk.Label(top, text=" | Robot activo:", bg="#ddd").pack(side=tk.LEFT)
         ttk.Combobox(top, textvariable=self.selected_robot, values=ROBOT_IDS, width=4, state="readonly").pack(
@@ -405,6 +416,7 @@ class MultiRobotApp:
             pass
 
     def stop_all(self):
+        self.stop_choreography(clear_targets=False)
         self.control_active.set(False)
         with self.lock:
             for rid in ROBOT_IDS:
@@ -414,6 +426,139 @@ class MultiRobotApp:
                 self._reset_robot_pid(rid)
         for rid in ROBOT_IDS:
             self.send_robot_cmd(rid, 0, 0)
+
+    def toggle_choreography(self):
+        if self.choreo_running:
+            self.stop_choreography(clear_targets=True)
+        else:
+            self.start_choreography()
+
+    def start_choreography(self):
+        if self.choreo_running:
+            return
+        with self.lock:
+            active = [rid for rid in ROBOT_IDS if self.robot_state.get(rid) is not None]
+        if not active:
+            self.lbl_path.config(text="Coreografia: no hay robots visibles")
+            return
+
+        self.control_active.set(True)
+        self.choreo_stop.clear()
+        self.choreo_running = True
+        self.choreo_button_text.set("Detener coreo")
+        self.choreo_thread = threading.Thread(target=self._choreography_loop, daemon=True)
+        self.choreo_thread.start()
+
+    def stop_choreography(self, clear_targets=True):
+        self.choreo_stop.set()
+        self.choreo_running = False
+        if hasattr(self, "choreo_button_text"):
+            self.choreo_button_text.set("Coreografia")
+        if clear_targets:
+            with self.lock:
+                for rid in ROBOT_IDS:
+                    self.targets[rid] = None
+                    self.final_targets[rid] = None
+                    self.paths[rid] = []
+                    self._reset_robot_pid(rid)
+            for rid in ROBOT_IDS:
+                self.send_robot_cmd(rid, 0, 0)
+            self.lbl_path.config(text="Coreografia detenida")
+
+    def _choreography_formations(self, robot_ids):
+        W = float(self.real_width.get())
+        H = float(self.real_height.get())
+        margin = max(ROBOT_POSE_MARGIN_M + 0.04, float(self.path_clearance.get()) + 0.04, 0.12)
+        cx, cy = W * 0.5, H * 0.5
+        span = max(min(W, H) * 0.28, 0.12)
+        span = min(span, max((W * 0.5) - margin, 0.08), max((H * 0.5) - margin, 0.08))
+
+        square = [
+            (cx - span, cy + span),
+            (cx + span, cy + span),
+            (cx + span, cy - span),
+            (cx - span, cy - span),
+        ]
+        diamond = [
+            (cx, cy + span),
+            (cx + span, cy),
+            (cx, cy - span),
+            (cx - span, cy),
+        ]
+        swapped = list(reversed(square))
+        line_y = cy
+        if len(robot_ids) <= 1:
+            line = [(cx, line_y)]
+        else:
+            line_span = min(W - 2.0 * margin, span * 2.4)
+            line = [
+                (cx - line_span * 0.5 + (line_span * i / max(len(robot_ids) - 1, 1)), line_y)
+                for i in range(len(robot_ids))
+            ]
+        orbit = []
+        for i in range(max(len(robot_ids), 1)):
+            a = (2.0 * math.pi * i / max(len(robot_ids), 1)) + math.radians(45.0)
+            orbit.append((cx + span * math.cos(a), cy + span * math.sin(a)))
+
+        def clipped(points):
+            out = []
+            for x, y in points[:len(robot_ids)]:
+                out.append((clamp(x, margin, W - margin), clamp(y, margin, H - margin)))
+            return out
+
+        return [
+            ("cuadrado", clipped(square)),
+            ("diamante", clipped(diamond)),
+            ("intercambio", clipped(swapped)),
+            ("fila", clipped(line)),
+            ("orbita", clipped(orbit)),
+        ]
+
+    def _choreography_loop(self):
+        try:
+            while not self.choreo_stop.is_set():
+                with self.lock:
+                    active = [rid for rid in ROBOT_IDS if self.robot_state.get(rid) is not None]
+                if not active:
+                    self.root.after(0, lambda: self.lbl_path.config(text="Coreografia: esperando robots visibles"))
+                    time.sleep(0.5)
+                    continue
+
+                formations = self._choreography_formations(active)
+                for name, points in formations:
+                    if self.choreo_stop.is_set():
+                        break
+                    for rid, (tx, ty) in zip(active, points):
+                        self.set_planned_target(rid, tx, ty, update_label=False)
+                    self.root.after(0, lambda n=name: self.lbl_path.config(text=f"Coreografia: {n}"))
+                    if not self._wait_choreography_arrival(active, timeout_s=11.0):
+                        break
+                    if self.choreo_stop.wait(1.0):
+                        break
+        finally:
+            self.choreo_running = False
+            self.root.after(0, lambda: self.choreo_button_text.set("Coreografia"))
+
+    def _wait_choreography_arrival(self, robot_ids, timeout_s=10.0):
+        t0 = time.time()
+        tol = max(float(self.dist_tolerance.get()) * 2.5, 0.055)
+        while not self.choreo_stop.is_set() and time.time() - t0 < timeout_s:
+            with self.lock:
+                states = {rid: self.robot_state.get(rid) for rid in robot_ids}
+                goals = {rid: self.final_targets.get(rid) for rid in robot_ids}
+            pending = 0
+            for rid in robot_ids:
+                st = states.get(rid)
+                goal = goals.get(rid)
+                if st is None or goal is None:
+                    pending += 1
+                    continue
+                if math.hypot(float(goal[0]) - st["x"], float(goal[1]) - st["y"]) > tol:
+                    pending += 1
+            if pending == 0:
+                return True
+            time.sleep(0.15)
+        return not self.choreo_stop.is_set()
 
     def _reset_robot_pid(self, rid):
         self.prev_angle_err[rid] = 0.0
@@ -617,7 +762,7 @@ class MultiRobotApp:
             self.paths[rid] = []
             self.final_targets[rid] = self.targets.get(rid)
 
-    def set_planned_target(self, rid, tx, ty):
+    def set_planned_target(self, rid, tx, ty, update_label=True):
         with self.lock:
             st = self.robot_state.get(rid)
 
@@ -627,7 +772,8 @@ class MultiRobotApp:
                 self.final_targets[rid] = (tx, ty)
                 self.paths[rid] = []
                 self._reset_robot_pid(rid)
-            self.lbl_path.config(text=f"R{rid}: directo, sin pose")
+            if update_label:
+                self.lbl_path.config(text=f"R{rid}: directo, sin pose")
             return
 
         start = (float(st["x"]), float(st["y"]))
@@ -644,10 +790,11 @@ class MultiRobotApp:
                 self.targets[rid] = goal
             self._reset_robot_pid(rid)
 
-        if path:
-            self.lbl_path.config(text=f"R{rid}: ruta {len(path)} pts")
-        else:
-            self.lbl_path.config(text=f"R{rid}: sin ruta, directo")
+        if update_label:
+            if path:
+                self.lbl_path.config(text=f"R{rid}: ruta {len(path)} pts")
+            else:
+                self.lbl_path.config(text=f"R{rid}: sin ruta, directo")
 
     # =========================
     # VIDEO THREAD
