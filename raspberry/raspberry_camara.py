@@ -1,4 +1,4 @@
-!/usr/bin/env python3
+#!/usr/bin/env python3
 import io
 import atexit
 from threading import Condition
@@ -11,7 +11,7 @@ from libcamera import Transform
 
 
 WIDTH = 1280
-HEIGHT = 720
+HEIGHT = 960
 FPS = 30
 
 ENC_QUALITY = Quality.LOW
@@ -108,6 +108,6 @@ def index():
     )
 
 
-if name == "__main__":
+if __name__ == "__main__":
     iniciar_camara()
     app.run(host=HOST, port=PORT, threaded=True, debug=False, use_reloader=False)

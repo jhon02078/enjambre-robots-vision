@@ -198,7 +198,7 @@ class MultiRobotApp:
         # ---------- Video ----------
         self.cap = None
         self.latest_frame = None
-        self.url_camera = tk.StringVar(value=cfg("url_camera", "http://172.25.203.138:5000/video")) 
+        self.url_camera = tk.StringVar(value=cfg("url_camera", "http://raspberry-5.local:5000/video"))
 
         # ---------- Workspace ----------
         self.real_width = tk.DoubleVar(value=cfg("real_width", 1.25))

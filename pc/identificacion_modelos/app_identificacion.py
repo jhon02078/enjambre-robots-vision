@@ -103,7 +103,7 @@ class IdentificationApp:
         self.samples = []
         self.last_output_dir = None
 
-        self.url_camera = tk.StringVar(value="http://192.168.1.10:5000/video")
+        self.url_camera = tk.StringVar(value="http://raspberry-5.local:5000/video")
         self.real_width = tk.DoubleVar(value=1.25)
         self.real_height = tk.DoubleVar(value=1.25)
         self.robot_id = tk.IntVar(value=1)

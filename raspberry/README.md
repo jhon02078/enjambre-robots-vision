@@ -16,7 +16,7 @@ publica:
 Configuración actual:
 
 ```text
-Resolución:   1280 x 720
+Resolución:   1280 x 960
 FPS pedidos:  30
 Calidad:      Quality.LOW
 Buffers:      3
@@ -62,11 +62,10 @@ libcamera-hello
 
 La vista previa debe funcionar antes de iniciar Flask.
 
-## Verificación necesaria del script
+## Punto de entrada del script
 
-En la revisión actual del archivo hay dos errores tipográficos en el punto de
-entrada. Antes de copiarlo o ejecutarlo en la Raspberry, verifique que la
-primera línea y el bloque final sean exactamente:
+El archivo ya incluye el shebang y el bloque de entrada correctos. Si modifica
+el script, consérvelos exactamente así:
 
 ```python
 #!/usr/bin/env python3
@@ -117,12 +116,16 @@ Edite al inicio del script:
 
 ```python
 WIDTH = 1280
-HEIGHT = 720
+HEIGHT = 960
 FPS = 30
 ENC_QUALITY = Quality.LOW
 BUFFER_COUNT = 3
 QUEUE = False
 ```
+
+La relación 4:3 de `1280 x 960` conserva el campo de visión completo del
+sensor OV5647 mediante su modo `1296 x 972`. Una salida 16:9 como `1280 x 720`
+selecciona un modo panorámico y recorta la parte superior e inferior.
 
 Prioridades recomendadas:
 
@@ -189,4 +192,3 @@ Cambie usuario y rutas antes de instalar el servicio.
 Flask escucha en todas las interfaces y no incorpora autenticación. Úselo solo
 en una red local de confianza; no exponga el puerto `5000` directamente a
 Internet.
-

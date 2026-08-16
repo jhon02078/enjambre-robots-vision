@@ -105,7 +105,7 @@ Desde la raíz:
 python pc\identificacion_modelos\app_identificacion.py
 ```
 
-La URL inicial es `http://192.168.1.10:5000/video`. Modifíquela si la Raspberry
+La URL inicial es `http://raspberry-5.local:5000/video`. Modifíquela si la Raspberry
 usa otra dirección.
 
 ## Preparación del experimento
