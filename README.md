@@ -332,6 +332,6 @@ parada de seguridad y la calidad de la localización.
 
 ## Autores
 
-Proyecto desarrollado por **Jhon Meneses**, **Jean Carlos Meneses** y **Holger Sanmartin**.
+Proyecto desarrollado por **Jhon Meneses**, **Jean Carlos Meneses**, **Tito Calva** y **Holger Sanmartin**.
 
 © 2026. Todos los derechos reservados.
