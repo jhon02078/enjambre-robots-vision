@@ -84,6 +84,8 @@ seguridad configurado.
 | [`pc/pc_servidor_vision.py`](pc/pc_servidor_vision.py) | Aplicación principal Tkinter |
 | [`pc/debug_robot.py`](pc/debug_robot.py) | Diagnóstico manual de motores por UDP |
 | [`pc/identificacion_modelos/`](pc/identificacion_modelos/) | Barridos, ajuste de modelos, PID y visor de resultados |
+| [`pc/experimentos/`](pc/experimentos/) | Registro, análisis y pruebas de la campaña del artículo |
+| [`paper/`](paper/) | Datos publicados, resultados y paquete de reproducibilidad |
 | [`raspberry/`](raspberry/) | Servidor MJPEG con Picamera2 |
 | [`esp32/`](esp32/) | Firmware de control para los cuatro robots |
 | [`hardware/`](hardware/) | Modelos CAD y diseño de PCB |
@@ -174,7 +176,8 @@ Use los sketches actuales de [`esp32/Riotronic/`](esp32/Riotronic/) y asigne:
 | Robot 3 | `ESP32_comandar_robot_3.ino` | `3` |
 | Robot 4 | `ESP32_comandar_robot_4.ino` | `10` |
 
-Antes de flashear, cambie las credenciales Wi-Fi y verifique el mapeo de ruedas.
+Antes de flashear, cree el `wifi_config.h` local con sus credenciales Wi-Fi y
+verifique el mapeo de ruedas.
 La [guía ESP32](esp32/README.md) contiene el procedimiento de calibración.
 
 ### 4. Montar el área
@@ -330,8 +333,22 @@ python pc\identificacion_modelos\test_synthetic_identificacion.py
 Estas pruebas no reemplazan la validación física del sentido de motores, la
 parada de seguridad y la calidad de la localización.
 
+## Reproducibilidad del artículo
+
+El repositorio incluye las 80 corridas seleccionadas, las mediciones de
+calibración y localización, los resultados derivados y los scripts usados para
+regenerarlos. La guía, la procedencia y las limitaciones están documentadas en
+[`paper/README.md`](paper/README.md).
+
+Verificación rápida:
+
+```powershell
+python pc\experimentos\verificar_publicacion.py
+python pc\experimentos\reproducir_resultados.py
+```
+
 ## Autores
 
-Proyecto desarrollado por **Jhon Meneses**, **Jean Carlos Meneses**, **Tito Calva** y **Holger Sanmartin**.
+Proyecto desarrollado por **Jhon Meneses**, **Jean Carlos Meneses**, **Holger Sanmartín** y **Tito Calva**.
 
 © 2026. Todos los derechos reservados.

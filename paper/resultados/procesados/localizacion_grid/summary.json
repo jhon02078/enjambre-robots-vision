@@ -1,0 +1,126 @@
+{
+  "calibration_points": 4,
+  "validation_points": 5,
+  "alignment": {
+    "version": 1,
+    "method": "translation_bias_after_parallax",
+    "enabled": true,
+    "offset_x_m": -0.01286124999999999,
+    "offset_y_m": -0.011444499999999982,
+    "marker_height_m": 0.09,
+    "workspace_width_m": 1.2,
+    "workspace_height_m": 1.2,
+    "calibration_points": [
+      "P_03_03",
+      "P_09_03",
+      "P_09_09",
+      "P_03_09"
+    ],
+    "calibration_rmse_m": 0.006934283808548666,
+    "calibration_max_error_m": 0.011660421596687702
+  },
+  "calibration_metrics": {
+    "homography": {
+      "count": 4,
+      "mean_error_m": 0.06331747059938814,
+      "median_error_m": 0.06245994654320309,
+      "rmse_radial_m": 0.0644741383618269,
+      "max_error_m": 0.07854724005972456,
+      "bias_x_m": 0.015024250000000003,
+      "bias_y_m": 0.05889024999999998,
+      "rmse_x_m": 0.02190895769428569,
+      "rmse_y_m": 0.060637546868668735
+    },
+    "parallax": {
+      "count": 4,
+      "mean_error_m": 0.01780867622800433,
+      "median_error_m": 0.015784047851684448,
+      "rmse_radial_m": 0.018559973700142993,
+      "max_error_m": 0.026605450569385215,
+      "bias_x_m": 0.01286124999999999,
+      "bias_y_m": 0.011444499999999982,
+      "rmse_x_m": 0.012961787039216457,
+      "rmse_y_m": 0.013284001674947194
+    },
+    "aligned": {
+      "count": 4,
+      "mean_error_m": 0.0061624556822524705,
+      "median_error_m": 0.004430523865118996,
+      "rmse_radial_m": 0.006934283808548666,
+      "max_error_m": 0.011660421596687702,
+      "bias_x_m": 2.7755575615628914e-17,
+      "bias_y_m": 1.3877787807814457e-17,
+      "rmse_x_m": 0.0016112640030423184,
+      "rmse_y_m": 0.006744488138472795
+    }
+  },
+  "validation_metrics": {
+    "homography": {
+      "count": 5,
+      "mean_error_m": 0.06431955532895947,
+      "median_error_m": 0.06330038301621882,
+      "rmse_radial_m": 0.06516688417286808,
+      "max_error_m": 0.08342397392236842,
+      "bias_x_m": 0.017483600000000023,
+      "bias_y_m": 0.06100560000000003,
+      "rmse_x_m": 0.019566595667105738,
+      "rmse_y_m": 0.06216004445622608
+    },
+    "parallax": {
+      "count": 5,
+      "mean_error_m": 0.019327246578924703,
+      "median_error_m": 0.021156281927597772,
+      "rmse_radial_m": 0.019666529505736406,
+      "max_error_m": 0.022085579820326252,
+      "bias_x_m": 0.014050200000000002,
+      "bias_y_m": 0.012488200000000038,
+      "rmse_x_m": 0.014121965861734689,
+      "rmse_y_m": 0.01368731029092278
+    },
+    "aligned": {
+      "count": 5,
+      "mean_error_m": 0.005540630690937336,
+      "median_error_m": 0.004999466071491986,
+      "rmse_radial_m": 0.005992603524345641,
+      "max_error_m": 0.009643132530459099,
+      "bias_x_m": 0.0011892000000000235,
+      "bias_y_m": 0.001043800000000017,
+      "rmse_x_m": 0.0018536440866574455,
+      "rmse_y_m": 0.00569871043307165
+    }
+  },
+  "positioning_metrics_all_validation_points": {
+    "count": 5,
+    "mean_error_m": 0.015088053639003434,
+    "rmse_radial_m": 0.020149441679609904,
+    "max_error_m": 0.04103656905736642
+  },
+  "point_map": {
+    "P1": {
+      "point": "V_03_06_ALIGNED",
+      "physical_x_m": 0.309,
+      "physical_y_m": 0.598
+    },
+    "P2": {
+      "point": "V_06_09",
+      "physical_x_m": 0.61,
+      "physical_y_m": 0.89
+    },
+    "P3": {
+      "point": "V_09_06_FILTER_DIAG",
+      "physical_x_m": 0.872,
+      "physical_y_m": 0.57
+    },
+    "P4": {
+      "point": "V_06_03",
+      "physical_x_m": 0.604,
+      "physical_y_m": 0.296
+    },
+    "P5": {
+      "point": "V_06_06",
+      "physical_x_m": 0.602,
+      "physical_y_m": 0.605
+    }
+  },
+  "note": "V_09_06_FILTER_DIAG is valid for localization but records a pre-fix positioning failure."
+}

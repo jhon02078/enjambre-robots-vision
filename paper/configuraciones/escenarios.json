@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "units": "meters",
+  "notes": "Las posiciones iniciales deben validarse fisicamente antes de ejecutar.",
+  "scenarios": {
+    "individual": {
+      "description": "Navegacion individual de R2 de izquierda a derecha.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "2": {
+          "start": [0.2, 0.625],
+          "goal": [1.0, 0.625]
+        }
+      }
+    },
+    "cruce_2": {
+      "description": "Intercambio frontal de posiciones entre R2 y R3.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "2": {
+          "start": [0.2, 0.625],
+          "goal": [1.0, 0.625]
+        },
+        "3": {
+          "start": [1.0, 0.625],
+          "goal": [0.2, 0.625]
+        }
+      }
+    },
+    "cruce_2_perpendicular": {
+      "description": "Cruce perpendicular simultaneo de R2 y R3 por el centro.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "2": {
+          "start": [0.6, 0.2],
+          "goal": [0.6, 1.0]
+        },
+        "3": {
+          "start": [0.2, 0.6],
+          "goal": [1.0, 0.6]
+        }
+      }
+    },
+    "cruce_3": {
+      "description": "Cruce simultaneo de tres robots por el centro.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "1": {
+          "start": [0.2, 0.625],
+          "goal": [1.05, 0.625]
+        },
+        "2": {
+          "start": [0.925, 0.2],
+          "goal": [0.325, 1.05]
+        },
+        "3": {
+          "start": [0.925, 1.05],
+          "goal": [0.325, 0.2]
+        }
+      }
+    },
+    "cruce_4": {
+      "description": "Cruce cardinal de cuatro robots hacia el punto opuesto.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "1": {
+          "start": [0.2, 0.625],
+          "goal": [1.05, 0.625]
+        },
+        "2": {
+          "start": [1.05, 0.625],
+          "goal": [0.2, 0.625]
+        },
+        "3": {
+          "start": [0.625, 0.2],
+          "goal": [0.625, 1.05]
+        },
+        "10": {
+          "start": [0.625, 1.05],
+          "goal": [0.625, 0.2]
+        }
+      }
+    },
+    "latencia": {
+      "description": "Recorrido individual repetido para barrido de retardo.",
+      "start_tolerance_m": 0.1,
+      "robots": {
+        "2": {
+          "start": [0.2, 0.4],
+          "goal": [1.0, 0.85]
+        }
+      }
+    }
+  }
+}

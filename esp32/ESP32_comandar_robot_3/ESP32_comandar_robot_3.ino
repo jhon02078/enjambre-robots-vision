@@ -1,12 +1,9 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-// =======================
-// WIFI 
-// =======================
-
-const char* WIFI_SSID = "LAB ROBOTICA";
-const char* WIFI_PASS = "robotica2021";
+// Credenciales locales. Copie ../wifi_config.example.h como wifi_config.h
+// dentro de esta carpeta antes de compilar. wifi_config.h no se versiona.
+#include "wifi_config.h"
 
 
 // =======================

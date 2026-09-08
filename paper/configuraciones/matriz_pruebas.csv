@@ -1,0 +1,15 @@
+test_id,scenario,condition,controller_mode,delay_ms,jitter_ms,repetitions,priority
+VIS-01,localizacion_grid,homografia_paralaje_alineacion,apf_fsm,0,0,5,required
+VIS-02,localizacion,intrinseca_off_on,apf_fsm,0,0,5,required
+VIS-03,localizacion,filtro_off_on,apf_fsm,0,0,5,optional
+VIS-04,localizacion,homografia_cruda_estable,apf_fsm,0,0,5,optional
+CTRL-01,cruce_2,baseline,apf_puro,0,0,10,required
+CTRL-02,cruce_2,propuesto,apf_fsm,0,0,10,required
+CTRL-03,cruce_2_perpendicular,baseline,apf_puro,0,0,10,required
+CTRL-04,cruce_2_perpendicular,propuesto,apf_fsm,0,0,10,required
+LAT-00,latencia,delay_000,apf_fsm,0,0,8,required
+LAT-50,latencia,delay_050,apf_fsm,50,0,8,required
+LAT-100,latencia,delay_100,apf_fsm,100,0,8,required
+LAT-150,latencia,delay_150,apf_fsm,150,0,8,required
+LAT-200,latencia,delay_200,apf_fsm,200,0,8,required
+NET-01,individual,jitter_20,apf_fsm,0,20,10,optional

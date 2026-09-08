@@ -49,9 +49,10 @@ cierre del programa.
 
 1. Instale el soporte de placas ESP32 de Espressif.
 2. Seleccione la placa ESP32 correspondiente.
-3. Abra el `.ino` del robot.
-4. Reemplace SSID y contraseña por los de su red.
-5. Verifique el ID del robot.
+3. Copie `Riotronic/wifi_config.example.h` como `wifi_config.h` dentro de la
+   carpeta del robot que va a compilar.
+4. Escriba en `wifi_config.h` el SSID y la contraseña de su red.
+5. Abra el `.ino` del robot y verifique su ID.
 6. Compile y cargue.
 7. Abra el monitor serie con la velocidad indicada por el sketch.
 
@@ -59,8 +60,9 @@ Los firmwares actuales usan la API LEDC reciente de Arduino-ESP32. Si aparecen
 errores en `ledcAttach` o `ledcWrite`, compruebe que usa una versión compatible
 del core ESP32 en lugar de cambiar llamadas al azar.
 
-> No publique ni confirme en Git credenciales Wi-Fi reales. Use valores locales
-> o un archivo de secretos excluido del repositorio.
+`wifi_config.h` está excluido por `.gitignore`; la plantilla pública solo
+contiene valores ficticios. Las credenciales reales nunca deben confirmarse en
+Git.
 
 ## Cableado lógico actual
 
@@ -224,4 +226,3 @@ age=<ms> cmd=<L,R> target=<...> current=<...> rssi=<dBm>
 - Mantenga `STBY` y la parada por timeout.
 - Pruebe primero con ruedas elevadas y después con PWM moderado en el piso.
 - Detenga si el driver, motor, cables o batería se calientan anormalmente.
-

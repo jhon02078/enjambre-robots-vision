@@ -14,17 +14,13 @@ from PIL import Image, ImageTk
 import cv2
 import numpy as np
 
-# ============================
-# CONFIG
-# ============================
-# Robots
 ROBOT_IDS = [1, 2, 3, 10]
 
 # ID 4 = (0,0), ID 5 = (W,0), ID 6 = (W,H), ID 7 = (0,H)
 WORKSPACE_ID_TO_WORLD = {
     4: (0.0, 0.0),
-    5: (1.0, 0.0),  # W se actualiza en runtime
-    6: (1.0, 0.7),  # W,H se actualiza en runtime
+    5: (1.0, 0.0),  
+    6: (1.0, 0.7), 
     7: (0.0, 0.7),
 }
 
@@ -34,32 +30,19 @@ DISCOVERY_QUERY = b"DISCOVER_ROBOTS"
 DISCOVERY_INTERVAL_S = 0.35
 DISCOVERY_LISTEN_S = 0.30
 ROBOT_WARN_S = 3.0
-ROBOT_STALE_S = 20.0  # se marca como stale, pero no se borra la IP conocida
+ROBOT_STALE_S = 20.0  
 ROBOT_FORGET_S = 120.0
 COMMAND_REDUNDANCY = 2
 COMMAND_RESEND_GAP_S = 0.003
 
 # Comandos UDP a robot
-ROBOT_CMD_PORT = 44444  # todos usan este puerto (en el ESP32 tambiÃ©n)
+ROBOT_CMD_PORT = 44444 
 CMD_RATE_HZ = 12
 
-# Controladores identificados por robot.
-# Valores temporales: todos usan las constantes obtenidas para robot_1.
-# Cuando identifiques cada robot, cambia solo la entrada de su ID.
-#
-# Importante: estos PID fueron calculados desde modelos comando->velocidad.
-# No se activan por defecto en el navegador posicion->PWM porque ese lazo ya
-# tiene logica de orientacion, waypoints, saturaciones y evasion.
+
 USE_IDENTIFIED_ROBOT_PID = False
 IDENTIFIED_PID_GAINS = {
-#    1: {               #PID del microsumo original
-#        "lin_kp": 228.07679080338463,
-#        "lin_ki": 37.371325439420886,
-#        "lin_kd": 0.0,
-#        "ang_kp": 12.993625382753669,
-#        "ang_ki": 2.9970939026679195,
-#        "ang_kd": 0.7356975837568529,
-#    },
+
     1: {
         "lin_kp": 250.0,
         "lin_ki": 80.0,
@@ -96,9 +79,7 @@ IDENTIFIED_PID_GAINS = {
 PID_LINEAR_I_LIMIT = 30.0
 PID_ANGULAR_I_LIMIT = 25.0
 
-# Navegacion hacia objetivos.
-# Si el objetivo queda detras o muy lateral, el robot debe girar en sitio antes
-# de volver a avanzar. La histeresis evita saltos RUN/ORIENT por ruido de yaw.
+
 ORIENT_ENTER_ANGLE_RAD = math.radians(35.0)
 ORIENT_EXIT_ANGLE_RAD = math.radians(8.0)
 RUN_FULL_SPEED_ANGLE_RAD = math.radians(12.0)
@@ -149,7 +130,7 @@ ARUCO_PARAMS.cornerRefinementWinSize = 5
 ARUCO_PARAMS.cornerRefinementMaxIterations = 50
 ARUCO_PARAMS.cornerRefinementMinAccuracy = 0.01
 
-# Umbrales mÃ¡s robustos (si se pierden marcadores)
+
 ARUCO_PARAMS.adaptiveThreshWinSizeMin = 5
 ARUCO_PARAMS.adaptiveThreshWinSizeMax = 45
 ARUCO_PARAMS.adaptiveThreshWinSizeStep = 10
@@ -157,15 +138,11 @@ ARUCO_PARAMS.adaptiveThreshConstant = 7
 
 ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
 
-# ============================
-# CALIBRACIÃ“N DE CÃMARA (Manual)
-# ============================
 
 CAM_FX = None  # Ejemplo: 650.45
 CAM_FY = None  # Ejemplo: 650.45
 CAM_CX = None  # Ejemplo: 320.0
 CAM_CY = None  # Ejemplo: 240.0
-# Coeficientes de distorsiÃ³n (k1, k2, p1, p2, k3)
 CAM_DIST = None  # Ejemplo: np.array([0.1, -0.05, 0.0, 0.0, 0.0])
 
 
@@ -205,11 +182,10 @@ class MultiRobotApp:
         self.real_height = tk.DoubleVar(value=cfg("real_height", 1.25))
         self.homography = None
 
-        # --- Estabilidad homografÃ­a ---
-        self.homography_t = 0.0  # cuÃ¡ndo se actualizÃ³ por Ãºltima vez
-        self.homography_hold_s = 1.2  # segundos que â€œaguantaâ€ el Ãºltimo H vÃ¡lido
-        self.ws_center_filt = {}  # centros filtrados de IDs 4..7  (id -> np.array([x,y]))
-        self.ws_last_seen = {}  # Ãºltimo tiempo visto por ID
+        self.homography_t = 0.0  
+        self.homography_hold_s = 1.2  
+        self.ws_center_filt = {} 
+        self.ws_last_seen = {}  
 
         # --- Parallax / altura ---
         self.robot_marker_height_m = tk.DoubleVar(value=cfg("robot_marker_height_m", 0.06))  # 6 cm
@@ -226,7 +202,7 @@ class MultiRobotApp:
         self.k_ang_pct_per_rad = tk.DoubleVar(value=cfg("k_ang_pct_per_rad", 10.0))  # % por rad
         # Vmax: Velocidad tope.
         self.vmax_pct = tk.DoubleVar(value=cfg("vmax_pct", 40.0))
-        self.wspin_thresh_rad = tk.DoubleVar(value=cfg("wspin_thresh_rad", 0.55))  # ~31Â°
+        self.wspin_thresh_rad = tk.DoubleVar(value=cfg("wspin_thresh_rad", 0.55)) 
         self.dist_tolerance = tk.DoubleVar(value=cfg("dist_tolerance", 0.02))  # 2 cm
 
         # Memoria para el control Derivativo (D)
@@ -239,13 +215,11 @@ class MultiRobotApp:
         self.orient_last_motion_t = {rid: None for rid in ROBOT_IDS}
         self.k_ang_d_pct = tk.DoubleVar(value=cfg("k_ang_d_pct", 3.5))
 
-        # EvitaciÃ³n
         self.avoid_on = tk.BooleanVar(value=cfg("avoid_on", True))
         self.avoid_radius = tk.DoubleVar(value=cfg("avoid_radius", 0.20))  
         self.k_rep = tk.DoubleVar(value=cfg("k_rep", 0.70))  
 
-        # ---------- Estado robots (visiÃ³n) ----------
-        # robot_state[rid] = {"x":, "y":, "yaw":, "t":}
+
         self.robot_state = {rid: None for rid in ROBOT_IDS}
         self.robot_pose_history = {rid: deque(maxlen=ROBOT_POSE_HISTORY_N) for rid in ROBOT_IDS}
 
@@ -287,13 +261,9 @@ class MultiRobotApp:
         self.disc_sock.bind(("", DISCOVERY_PORT))
         self.disc_sock.settimeout(0.05)
 
-        # Tabla de IPs descubiertas. Se conserva el ultimo endpoint valido aunque
-        # pasen varios segundos sin discovery para no cortar comandos por jitter WiFi.
-        # discovered[rid] = {"ip": str, "port": int, "t": float, "first_t": float, ...}
+
         self.discovered = self.load_network_cache()
 
-        # === VISUALIZACIÃ“N DE FUERZAS ===
-        # Guardaremos aquÃ­ los vectores calculados para dibujarlos luego
         self.vis_vectors = {rid: {'att': None, 'rep': None, 'res': None} for rid in ROBOT_IDS}
 
         # ---------- UI ----------
@@ -929,7 +899,7 @@ class MultiRobotApp:
             info = self.discovered.get(rid)
 
         if info is None:
-            return  # no descubierto aÃºn
+            return  
 
         ip = info["ip"]
         port = info["port"]
@@ -975,11 +945,7 @@ class MultiRobotApp:
     def _control_loop(self):
         dt = 1.0 / CMD_RATE_HZ
 
-        # === MÃ¡quina de estados por robot (reposo real / orientar / correr / evasiÃ³n)
-        # IDLE  : reposo real (sin target o reciÃ©n llegÃ³)
-        # ORIENT: solo gira hasta quedar dentro de Â±10Â°
-        # RUN   : navegaciÃ³n normal
-        # AVOID : evasiÃ³n por repulsiÃ³n (al salir vuelve a RUN, no a ORIENT)
+
         if not hasattr(self, 'nav_mode'):
             self.nav_mode = {rid: "IDLE" for rid in ROBOT_IDS}
             self.prev_goal = {rid: None for rid in ROBOT_IDS}
@@ -1057,7 +1023,7 @@ class MultiRobotApp:
                     self._reset_robot_pid(rid)
                     continue
 
-                # --- 2. ATRACCIÃ“N ---
+
                 dist_vector = np.array([gx - rx, gy - ry], dtype=np.float32)
                 norm_goal = float(np.linalg.norm(dist_vector))
                 if norm_goal > 1e-6:
@@ -1065,7 +1031,6 @@ class MultiRobotApp:
                 else:
                     u_goal = np.array([0.0, 0.0], dtype=np.float32)
 
-                # --- 3. REPULSIÃ“N (Simple, sin tangencial) ---
                 u_rep = np.array([0.0, 0.0], dtype=np.float32)
 
                 if self.avoid_on.get():
@@ -1152,19 +1117,18 @@ class MultiRobotApp:
 
                 mode = self.nav_mode.get(rid, "IDLE")
 
-                # --- 5.1 Cambiar a modo evasiÃ³n si hay repulsiÃ³n relevante ---
                 IS_SAFE_ZONE = (norm_rep < 0.15)  # tu criterio actual
                 if self.avoid_on.get() and (not IS_SAFE_ZONE):
                     if mode != "AVOID":
                         self._reset_robot_pid(rid)
                     mode = "AVOID"
                 else:
-                    # Si estÃ¡bamos evitando y ya salimos, volvemos a RUN (NO a ORIENT)
+                    
                     if mode == "AVOID":
                         self._reset_robot_pid(rid)
                         mode = "RUN"
 
-                # --- 5.2 Elegir heading segÃºn modo ---
+                
                 if mode == "ORIENT":
                     desired_heading = desired_heading_goal
                 else:
@@ -1177,7 +1141,7 @@ class MultiRobotApp:
                 # 1. Throttle por distancia (igual que antes)
                 dist_factor = min(dist_goal / 0.15, 1.0)
 
-                # 3. LÃ³gica por estados
+                # 3. Logica por estados
                 if mode == "ORIENT":
                     if abs(angle_err) <= ORIENT_EXIT_ANGLE_RAD:
                         mode = "RUN"
@@ -1190,7 +1154,7 @@ class MultiRobotApp:
                         dist_factor = 0.0  # fuerza lineal=0
 
                 elif mode == "RUN":
-                    # En RUN: aplica tu lÃ³gica normal en zona segura
+                    # En RUN: aplica tu logica normal en zona segura
                     if IS_SAFE_ZONE:
                         abs_err = abs(angle_err)
                         if abs_err <= RUN_FULL_SPEED_ANGLE_RAD:
@@ -1206,12 +1170,12 @@ class MultiRobotApp:
                                 1.0,
                             )
                     else:
-                        # Si por algÃºn motivo estamos RUN pero aparece repulsiÃ³n,
+                        # Si por algun motivo estamos RUN pero aparece repulsion,
                 
                         align_factor = max(0.0, math.cos(angle_err))
 
                 else:  # AVOID
-                    # EvasiÃ³n: mantenemos coseno 
+                    # Evasión: mantenemos coseno 
                     align_factor = max(0.0, math.cos(angle_err))
 
                 # Guardar modo final
@@ -1274,8 +1238,8 @@ class MultiRobotApp:
 
                 # Si align_factor es bajo (robot frenado o curveando cerrado),
                 if mode != "ORIENT" and align_factor < 0.5:
-                    # InterpolaciÃ³n Lineal Inversa:
-                    # - Si align_factor es 0.0 (Parado) -> Boost = 3.5 (Giro muy rÃ¡pido)
+                    # Interpolación Lineal Inversa:
+                    # - Si align_factor es 0.0 (Parado) -> Boost = 3.5 (Giro muy rapido)
                     # - Si align_factor es 0.4 (Curva)  -> Boost = 1.5 (Giro alegre)
                     # - Si align_factor es 0.5 (Recto)  -> Boost = 1.0 (Normal)
 
@@ -1340,7 +1304,7 @@ class MultiRobotApp:
             time.sleep(dt)
 
     # =========================
-    # VISION: detecciÃ³n + homografÃ­a
+    # VISION: detección + homografía
     # =========================
     def _get_marker_center(self, corners_4x2):
         return np.mean(corners_4x2, axis=0)
@@ -1410,7 +1374,7 @@ class MultiRobotApp:
         img_pts = np.array(img_pts, dtype=np.float32)
         obj_pts = np.array(obj_pts, dtype=np.float32)
 
-        # 2) Matriz intrÃ­nseca (K) y DistorsiÃ³n (dist)
+        # 2) Matriz intri­nseca (K) y Distorsion (dist)
         if None not in (CAM_FX, CAM_FY, CAM_CX, CAM_CY, CAM_DIST):
             # Usar valores reales calibrados
             K = np.array([[CAM_FX, 0, CAM_CX],
@@ -1418,7 +1382,7 @@ class MultiRobotApp:
                           [0, 0, 1]], dtype=np.float32)
             dist = np.array(CAM_DIST, dtype=np.float32)
         else:
-            # Usar aproximaciÃ³n (fallback)
+            # Usar aproximacion (fallback)
             f = 0.95 * w_img
             K = np.array([[f, 0, w_img / 2],
                           [0, f, h_img / 2],
@@ -1431,29 +1395,28 @@ class MultiRobotApp:
             return None
 
         R, _ = cv2.Rodrigues(rvec)
-        C = (-R.T @ tvec).reshape(-1)  # cÃ¡mara en coords del mundo
+        C = (-R.T @ tvec).reshape(-1)  # camara en coords del mundo
         if C[2] < 0.40:
             return None
         return (float(C[0]), float(C[1]), float(C[2]))
 
     def _parallax_correct_xy(self, x_floor, y_floor, cam_pos, h_obj):
         """
-        Dado el punto que te da la homografÃ­a (intersecciÃ³n con suelo z=0),
+        Dado el punto que te da la homografía (intersección con suelo z=0),
         corrige para obtener el XY del objeto a altura h_obj (m) sobre el suelo.
 
-        FÃ³rmula: P_h = Cxy + ((Cz - h)/Cz) * (P0 - Cxy)
+        Fórmula: P_h = Cxy + ((Cz - h)/Cz) * (P0 - Cxy)
         """
         if cam_pos is None:
             return x_floor, y_floor
 
         cx, cy, cz = cam_pos
         if cz <= (h_obj + 0.1):
-            return x_floor, y_floor  # evita divisiÃ³n rara
+            return x_floor, y_floor  
 
-        s = (cz - h_obj) / cz  # < 1  (trae el punto hacia la cÃ¡mara)
+        s = (cz - h_obj) / cz  
 
-        # === LIMITADOR DE EXPLOSIÃ“N ===
-        # Si la correcciÃ³n intenta mover el punto mÃ¡s de un 200% relativo al centro, lo ignoramos
+
         if abs(s) > 2.0:
             return x_floor, y_floor
 
@@ -1540,7 +1503,7 @@ class MultiRobotApp:
         # refrescar states si no se ve
         now = time.time()
 
-        # Diccionario para guardar dÃ³nde estÃ¡n las esquinas RAW (crudas) en este frame
+        # Diccionario para guardar donde estan las esquinas RAW (crudas) en este frame
         current_raw_corners = {}
 
         if ids is not None:
@@ -1557,9 +1520,9 @@ class MultiRobotApp:
             # 2. LOGICA DE HISTERESIS FUERTE PARA EL WORKSPACE (IDs 4,5,6,7)
             # ==================================================================
 
-            # Umbral alto: El marcador debe moverse mÃ¡s de X px para ser actualizado.
+            # Umbral alto: El marcador debe moverse mas de X px para ser actualizado.
             HEAVY_LOCK_THRESHOLD = 15.0
-            WS_ALPHA = 0.8  # Velocidad de actualizaciÃ³n 
+            WS_ALPHA = 0.8   
 
             for mid in [4, 5, 6, 7]:
                 if mid in current_raw_corners:
@@ -1572,18 +1535,16 @@ class MultiRobotApp:
                         self.ws_center_filt[mid] = raw_p
                         self.ws_last_seen[mid] = now
                     else:
-                        # Ya lo conocÃ­amos. Calculamos cuÃ¡nto se moviÃ³ respecto al ANCLA.
+                        # Ya lo conocimos. Calculamos cuánto se movió respecto al ANCLA.
                         dist_moved = np.linalg.norm(raw_p - prev)
 
                         if dist_moved > HEAVY_LOCK_THRESHOLD:
-                            # CAMBIO INTENCIONAL: El usuario moviÃ³ el marcador lejos.
+                            # CAMBIO INTENCIONAL: El usuario movió el marcador lejos.
                             # Actualizamos el filtro (suavemente para no saltar de golpe)
                             self.ws_center_filt[mid] = (WS_ALPHA * prev) + ((1.0 - WS_ALPHA) * raw_p)
                             self.ws_last_seen[mid] = now
                         else:
-                            # RUIDO / VIBRACIÃ“N: El marcador se moviÃ³ poco (ej. 4px).
-                            # IGNORAMOS la nueva lectura. Mantenemos 'prev' inmutable.
-                            # Solo actualizamos el tiempo 'last_seen' para saber que sigue vivo.
+
                             self.ws_last_seen[mid] = now
 
             # ==================================================================
@@ -1613,7 +1574,6 @@ class MultiRobotApp:
             H = float(self.real_height.get())
 
             # Verificar si todos los marcadores 4..7 han sido vistos recientemente
-            # (aunque no estÃ©n en este frame exacto, usamos su memoria)
             def _recent(mid):
                 return (mid in self.ws_center_filt) and (
                         (now - self.ws_last_seen.get(mid, 0)) <= self.homography_hold_s)
@@ -1642,7 +1602,7 @@ class MultiRobotApp:
                     jump = float(np.linalg.norm(A - B))
                     if jump > 0.8: Hm_new = None
 
-            # Actualizar homografÃ­a global
+            # Actualizar homografia global
             with self.lock:
                 if Hm_new is not None:
                     if self.homography is None:
@@ -2001,9 +1961,6 @@ class MultiRobotApp:
             # Convertimos coordenada mundo a pixel
             cmx, cmy, _, _, _ = self.world_to_map(cx, cy, cw, ch, W, H)
 
-            # Ajustamos un poquito el texto para que no quede encima de la lÃ­nea
-            # Si es la parte de abajo (cy < H/2), texto mÃ¡s abajo (+15)
-            # Si es la parte de arriba, texto mÃ¡s arriba (-15)
             offset_y = 15 if cy < H / 2 else -15
 
             self.canvas.create_text(cmx, cmy + offset_y, text=f"ID {cid}", fill="blue", font=("Arial", 10, "bold"))
@@ -2101,7 +2058,7 @@ class MultiRobotApp:
                 self.canvas.create_text(mx, my - 18, text=net_text, fill=net_color)
 
             # === DIBUJAR FUERZAS Y PAREDES ===
-            # 1. Dibujar Zona de Paredes (RectÃ¡ngulo Rojo Tenue)
+            # 1. Dibujar Zona de Paredes (Rectángulo Rojo Tenue)
             wall_d0 = 0.025  # El mismo valor que en control
             wx0, wy0, _, _, _ = self.world_to_map(wall_d0, wall_d0, cw, ch, W, H)
             wx1, wy1, _, _, _ = self.world_to_map(W - wall_d0, H - wall_d0, cw, ch, W, H)
@@ -2117,28 +2074,22 @@ class MultiRobotApp:
                 st = self.robot_state.get(rid)
                 if st is None: continue
 
-                # PosiciÃ³n del robot en pixeles
+                # Posicion del robot en pixeles
                 mx, my, _, _, _ = self.world_to_map(st["x"], st["y"], cw, ch, W, H)
 
-                # Dibujar Radio de EvasiÃ³n (CÃ­rculo punteado)
+                # Dibujar Radio de Evasión (Círculo punteado)
                 r_pix = float(self.avoid_radius.get()) * scale
                 self.canvas.create_oval(mx - r_pix, my - r_pix, mx + r_pix, my + r_pix,
                                         outline="#FFA500", dash=(2, 2))
 
-                # Dibujar Flechas (AtracciÃ³n, RepulsiÃ³n, Resultante)
-                # Nota: En pantalla Y crece hacia abajo, en matemÃ¡ticas hacia arriba.
-                # Por eso restamos vector_y (my - vy).
 
                 if vecs['att'] is not None:
-                    # AtracciÃ³n (VERDE)
                     vx, vy = vecs['att']
                     self.canvas.create_line(mx, my, mx + vx * VIS_SCALE, my - vy * VIS_SCALE,
                                             fill="green", width=2, arrow=tk.LAST)
 
                 if vecs['rep'] is not None:
-                    # RepulsiÃ³n (ROJO)
                     vx, vy = vecs['rep']
-                    # Solo dibujamos si hay repulsiÃ³n significativa
                     if abs(vx) > 0.01 or abs(vy) > 0.01:
                         self.canvas.create_line(mx, my, mx + vx * VIS_SCALE, my - vy * VIS_SCALE,
                                                 fill="red", width=2, arrow=tk.LAST)

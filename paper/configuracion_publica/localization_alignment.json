@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "method": "translation_bias_after_parallax",
+  "enabled": true,
+  "offset_x_m": -0.01286124999999999,
+  "offset_y_m": -0.011444499999999982,
+  "marker_height_m": 0.09,
+  "workspace_width_m": 1.2,
+  "workspace_height_m": 1.2,
+  "calibration_points": [
+    "P_03_03",
+    "P_09_03",
+    "P_09_09",
+    "P_03_09"
+  ],
+  "calibration_rmse_m": 0.006934283808548666,
+  "calibration_max_error_m": 0.011660421596687702
+}

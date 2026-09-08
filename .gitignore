@@ -39,6 +39,12 @@ id_ed25519.*
 pc/robots_cache.json
 pc/ui_config.json
 pc/identificacion_modelos/resultados/
+paper/configuracion_local/
+paper/resultados/batch_logs/
+paper/resultados/campaign_progress.jsonl
+paper/resultados/raw/**/processed/
+paper/resultados/regenerados/
+paper/videos/
 
 # El mapa de paredes SI se versiona:
 # pc/paredes.json

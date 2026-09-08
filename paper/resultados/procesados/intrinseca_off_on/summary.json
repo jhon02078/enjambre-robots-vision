@@ -1,0 +1,86 @@
+{
+  "points": 5,
+  "stages": {
+    "raw": {
+      "off": {
+        "count": 5,
+        "mean_error_m": 0.06456223717928251,
+        "median_error_m": 0.06525873765293573,
+        "rmse_m": 0.06558776755189388,
+        "max_error_m": 0.07973985006477262
+      },
+      "on": {
+        "count": 5,
+        "mean_error_m": 0.0684824799744912,
+        "median_error_m": 0.07110082428942284,
+        "rmse_m": 0.06957657428351421,
+        "max_error_m": 0.08400274836306856
+      },
+      "paired_on_minus_off_mean_m": 0.003920242795208669,
+      "paired_on_minus_off_median_m": 0.004111432021070685,
+      "paired_on_minus_off_stats_m": {
+        "count": 5,
+        "mean": 0.003920242795208669,
+        "std": 0.0013151598864338935,
+        "ci95_low": 0.002287256112341949,
+        "ci95_high": 0.005553229478075388
+      },
+      "on_better_points": 0,
+      "off_better_points": 5,
+      "equal_points": 0,
+      "rmse_improvement_pct": -6.081632109927108
+    },
+    "parallax": {
+      "off": {
+        "count": 5,
+        "mean_error_m": 0.018483352321852282,
+        "median_error_m": 0.018894284567119668,
+        "rmse_m": 0.018718772703833635,
+        "max_error_m": 0.0229203329690351
+      },
+      "on": {
+        "count": 5,
+        "mean_error_m": 0.018768233773697456,
+        "median_error_m": 0.01903096271476944,
+        "rmse_m": 0.019096956779367572,
+        "max_error_m": 0.023393244633348523
+      },
+      "paired_on_minus_off_mean_m": 0.0002848814518451745,
+      "paired_on_minus_off_median_m": 0.00024572867892459424,
+      "paired_on_minus_off_stats_m": {
+        "count": 5,
+        "mean": 0.0002848814518451745,
+        "std": 0.0009471232823213562,
+        "ci95_low": -0.0008911274296738353,
+        "ci95_high": 0.0014608903333641842
+      },
+      "on_better_points": 1,
+      "off_better_points": 4,
+      "equal_points": 0,
+      "rmse_improvement_pct": -2.020346534025087
+    }
+  },
+  "detection": {
+    "off_mean_pct": 86.66666666666666,
+    "on_mean_pct": 92.88888888888889,
+    "paired_improvement_mean_points": 6.222222222222224,
+    "paired_improvement_stats_points": {
+      "count": 5,
+      "mean": 6.222222222222224,
+      "std": 16.378998899147398,
+      "ci95_low": -14.114991037468222,
+      "ci95_high": 26.559435481912672
+    },
+    "on_better_points": 2,
+    "off_better_points": 1
+  },
+  "calibration": {
+    "created_utc": "2026-08-17T20:31:16+00:00",
+    "valid_views": 25,
+    "rms_reprojection_error_px": 0.16260827698337765,
+    "quality_passed": true,
+    "focal_ratio": 1.010138525895227,
+    "normal_spread_deg": 37.43273390200763
+  },
+  "method": "Paired static positions; sequential OFF/ON frame windows; no XY alignment."
+}

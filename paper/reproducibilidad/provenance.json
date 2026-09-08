@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "publication_date": "2026-09-07",
+  "paper_id": 125,
+  "paper_title": "Centralized Multi-Robot Control Based on Overhead Vision and Artificial Potential Fields",
+  "authors": [
+    "Jhon Meneses",
+    "Jean Carlos Meneses",
+    "Holger Sanmartín",
+    "Tito Calva"
+  ],
+  "experiment_source": {
+    "branch": "codex/paper-experimentos",
+    "recorded_commit": "fa313c5a48dfcaf4d082ceb2a64612aa9e175c83",
+    "manifests_with_dirty_true": 80,
+    "snapshot_scope": "end_of_campaign",
+    "limitation": "The recorded commit alone does not reconstruct the per-run dirty working tree."
+  },
+  "dataset": {
+    "selected_runs": 80,
+    "front_crossing_runs": 20,
+    "perpendicular_crossing_runs": 20,
+    "latency_runs": 40,
+    "latency_levels_ms": [0, 50, 100, 150, 200]
+  },
+  "redactions": [
+    "absolute workstation paths replaced with repository-relative paths",
+    "Wi-Fi SSIDs and passwords removed from firmware snapshots"
+  ],
+  "measurement_values_modified": false
+}

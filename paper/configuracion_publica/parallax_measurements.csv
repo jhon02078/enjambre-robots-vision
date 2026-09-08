@@ -1,0 +1,5 @@
+timestamp,point,command_x_m,command_y_m,marker_height_m,raw_x_m,raw_y_m,corrected_x_m,corrected_y_m,physical_x_m,physical_y_m,notes
+2026-08-17,P_03_03,0.300,0.300,0.090,0.2997,0.3031,0.3132,0.2731,0.300,0.250,Primera medicion fisica; cinta 1.9 cm
+2026-08-17,P_09_03,0.900,0.300,0.090,0.892347,0.307868,0.874640,0.277719,0.860,0.270,Medicion fisica confirmada desde ID4; altura al plano ArUco 9 cm
+2026-08-17,P_09_09,0.900,0.900,0.090,0.921520,0.962789,0.902243,0.898104,0.892,0.890,Medicion fisica confirmada desde ID4; centro del ArUco proyectado al piso
+2026-08-17,P_03_09,0.300,0.900,0.090,0.272530,0.967804,0.287362,0.902855,0.274,0.896,Medicion fisica confirmada desde ID4; centro del ArUco proyectado al piso

@@ -1,0 +1,8 @@
+timestamp,point,command_x_m,command_y_m,marker_height_m,raw_x_m,raw_y_m,corrected_x_m,corrected_y_m,aligned_x_m,aligned_y_m,physical_x_m,physical_y_m,notes,include_final
+2026-08-17,V_03_06,0.300,0.600,0.090,0.247281,0.670589,0.263473,0.621224,0.250612,0.609780,0.250,0.615,Primera validacion independiente; robot detenido antes del objetivo nominal,0
+2026-08-17,V_03_06_RETRY,0.300,0.600,0.090,0.306972,0.633479,0.320021,0.586067,0.307160,0.574623,0.306,0.575,Repeticion tras corregir llegada final y agregar asentamiento,0
+2026-08-17,V_03_06_ALIGNED,0.300,0.600,0.090,0.311787,0.661239,0.324576,0.612317,0.311715,0.600873,0.309,0.598,Validacion con alineacion XY activa y precision de posicionamiento 1 cm,1
+2026-08-17,V_06_09,0.600,0.900,0.090,0.627255,0.971620,0.623355,0.906420,0.610494,0.894975,0.610,0.890,Segundo punto espacial de validacion independiente,1
+2026-08-17,V_09_06_FILTER_DIAG,0.900,0.600,0.090,0.902328,0.618426,0.884027,0.571837,0.871166,0.560393,0.872,0.570,Tercer punto de localizacion; posicionador fallo por discrepancia entre pose interna y preflight,1
+2026-08-17,V_06_03,0.600,0.300,0.090,0.621364,0.345954,0.617530,0.313456,0.604669,0.302012,0.604,0.296,Cuarto punto espacial; homografia y pose de camara estabilizadas de forma consistente,1
+2026-08-17,V_06_06,0.600,0.600,0.090,0.621684,0.666789,0.617763,0.617411,0.604902,0.605966,0.602,0.605,Quinto y ultimo punto espacial de validacion,1
